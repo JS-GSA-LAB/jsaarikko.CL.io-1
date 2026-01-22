@@ -67,7 +67,7 @@ app.get(UI_ROUTE, (_req, res) => {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Extreme Networks EDGE | MCP Proxy</title>
+  <title>Extreme Networks MCP Exchange</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500&family=Roboto:wght@300;400;500;700&family=Poppins:wght@400;600&display=swap" rel="stylesheet">
@@ -209,8 +209,8 @@ app.get(UI_ROUTE, (_req, res) => {
     <div class="header">
       <div class="logo">E</div>
       <div class="brand">
-        <div class="brand-name">Extreme Networks EDGE</div>
-        <div class="brand-sub">MCP Proxy Gateway</div>
+        <div class="brand-name">Extreme Networks MCP Exchange</div>
+        <div class="brand-sub">Proxy Gateway</div>
       </div>
     </div>
 
