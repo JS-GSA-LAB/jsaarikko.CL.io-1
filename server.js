@@ -5,6 +5,7 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 /**
  * ENV VARS (set these in Railway):
  * - UPSTREAM_MCP_URL        (required) e.g. "http://134.141.116.46:8000"  (no trailing slash)
+ * - MERAKI_API_KEY          (required) Meraki Dashboard API key
  * - PROXY_ROUTE             (optional) default "/mcp"
  * - UI_ROUTE                (optional) default "/"
  * - BASIC_AUTH_USER         (optional) if set, enables Basic Auth for UI + proxy
@@ -16,6 +17,26 @@ import { createProxyMiddleware } from "http-proxy-middleware";
  * - Your Claude/clients can point to: https://<your-railway-domain>/mcp
  * - Your existing Meraki MCP server remains where it is; Railway just fronts it with a UI + stable URL.
  */
+
+const MERAKI_API_BASE = "https://api.meraki.com/api/v1";
+const MERAKI_API_KEY = process.env.MERAKI_API_KEY || "";
+
+// Meraki API helper
+async function merakiFetch(endpoint) {
+  if (!MERAKI_API_KEY) {
+    throw new Error("MERAKI_API_KEY not configured");
+  }
+  const res = await fetch(`${MERAKI_API_BASE}${endpoint}`, {
+    headers: {
+      "X-Cisco-Meraki-API-Key": MERAKI_API_KEY,
+      "Content-Type": "application/json",
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Meraki API error: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
 
 const app = express();
 
@@ -58,6 +79,46 @@ app.use(basicAuth);
 
 // Health
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
+
+// Meraki API: List Organizations
+app.get("/api/organizations", async (_req, res) => {
+  try {
+    const orgs = await merakiFetch("/organizations");
+    res.json(orgs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Meraki API: Get Organization details
+app.get("/api/organizations/:orgId", async (req, res) => {
+  try {
+    const org = await merakiFetch(`/organizations/${req.params.orgId}`);
+    res.json(org);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Meraki API: List Networks for an Organization
+app.get("/api/organizations/:orgId/networks", async (req, res) => {
+  try {
+    const networks = await merakiFetch(`/organizations/${req.params.orgId}/networks`);
+    res.json(networks);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Meraki API: List Devices for an Organization
+app.get("/api/organizations/:orgId/devices", async (req, res) => {
+  try {
+    const devices = await merakiFetch(`/organizations/${req.params.orgId}/devices`);
+    res.json(devices);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // UI
 app.get(UI_ROUTE, (_req, res) => {
@@ -262,7 +323,47 @@ BASIC_AUTH_PASS=yourpass</pre>
       <div class="muted">Monitor service status:</div>
       <pre><a href="/healthz">/healthz</a></pre>
     </div>
+
+    <div class="card">
+      <div class="section-title">
+        <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
+        <h2>Meraki Organizations</h2>
+      </div>
+      <div class="muted">Connected Meraki Dashboard organizations:</div>
+      <div id="orgs-container" style="margin-top:12px">
+        <div class="muted">Loading...</div>
+      </div>
+    </div>
   </div>
+
+  <script>
+    async function loadOrganizations() {
+      const container = document.getElementById('orgs-container');
+      try {
+        const res = await fetch('/api/organizations');
+        if (!res.ok) throw new Error('Failed to fetch');
+        const orgs = await res.json();
+        if (orgs.error) {
+          container.innerHTML = '<div class="warn">' + orgs.error + '</div>';
+          return;
+        }
+        if (orgs.length === 0) {
+          container.innerHTML = '<div class="muted">No organizations found</div>';
+          return;
+        }
+        container.innerHTML = orgs.map(org =>
+          '<div style="padding:10px;margin:6px 0;background:linear-gradient(rgba(255,255,255,0.05),rgba(255,255,255,0.05)),#121212;border:1px solid rgba(255,255,255,0.12);border-radius:8px">' +
+          '<div style="font-weight:500;color:rgba(255,255,255,0.87)">' + org.name + '</div>' +
+          '<div style="font-size:12px;color:rgba(255,255,255,0.6);font-family:var(--font-mono)">ID: ' + org.id + '</div>' +
+          (org.url ? '<a href="' + org.url + '" target="_blank" style="font-size:12px">Dashboard</a>' : '') +
+          '</div>'
+        ).join('');
+      } catch (err) {
+        container.innerHTML = '<div class="warn">Error loading organizations</div>';
+      }
+    }
+    loadOrganizations();
+  </script>
 </body>
 </html>`);
 });
