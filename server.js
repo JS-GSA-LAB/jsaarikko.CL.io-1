@@ -6,6 +6,8 @@ import { createProxyMiddleware } from "http-proxy-middleware";
  * ENV VARS (set these in Railway):
  * - UPSTREAM_MCP_URL        (required) e.g. "http://134.141.116.46:8000"  (no trailing slash)
  * - MERAKI_API_KEY          (required) Meraki Dashboard API key
+ * - PEPLINK_CLIENT_ID       (optional) Peplink InControl OAuth client ID
+ * - PEPLINK_CLIENT_SECRET   (optional) Peplink InControl OAuth client secret
  * - PROXY_ROUTE             (optional) default "/mcp"
  * - UI_ROUTE                (optional) default "/"
  * - BASIC_AUTH_USER         (optional) if set, enables Basic Auth for UI + proxy
@@ -34,6 +36,62 @@ async function merakiFetch(endpoint) {
   });
   if (!res.ok) {
     throw new Error(`Meraki API error: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+// Peplink InControl API
+const PEPLINK_API_BASE = "https://api.ic.peplink.com/rest";
+const PEPLINK_TOKEN_URL = "https://api.ic.peplink.com/api/oauth2/token";
+const PEPLINK_CLIENT_ID = process.env.PEPLINK_CLIENT_ID || "";
+const PEPLINK_CLIENT_SECRET = process.env.PEPLINK_CLIENT_SECRET || "";
+
+let peplinkToken = null;
+let peplinkTokenExpiry = 0;
+
+// Get Peplink OAuth token
+async function getPeplinkToken() {
+  if (peplinkToken && Date.now() < peplinkTokenExpiry - 60000) {
+    return peplinkToken;
+  }
+
+  if (!PEPLINK_CLIENT_ID || !PEPLINK_CLIENT_SECRET) {
+    throw new Error("PEPLINK_CLIENT_ID and PEPLINK_CLIENT_SECRET not configured");
+  }
+
+  const res = await fetch(PEPLINK_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: PEPLINK_CLIENT_ID,
+      client_secret: PEPLINK_CLIENT_SECRET,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Peplink OAuth error: ${res.status} ${res.statusText}`);
+  }
+
+  const data = await res.json();
+  peplinkToken = data.access_token;
+  peplinkTokenExpiry = Date.now() + (data.expires_in * 1000);
+  return peplinkToken;
+}
+
+// Peplink API helper
+async function peplinkFetch(endpoint) {
+  const token = await getPeplinkToken();
+  const res = await fetch(`${PEPLINK_API_BASE}${endpoint}`, {
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Peplink API error: ${res.status} ${res.statusText}`);
   }
   return res.json();
 }
@@ -115,6 +173,86 @@ app.get("/api/organizations/:orgId/devices", async (req, res) => {
   try {
     const devices = await merakiFetch(`/organizations/${req.params.orgId}/devices`);
     res.json(devices);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Peplink API: List Organizations
+app.get("/api/peplink/organizations", async (_req, res) => {
+  try {
+    const data = await peplinkFetch("/o");
+    res.json(data.data || data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Peplink API: Get Organization details
+app.get("/api/peplink/organizations/:orgId", async (req, res) => {
+  try {
+    const data = await peplinkFetch(`/o/${req.params.orgId}`);
+    res.json(data.data || data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Peplink API: List Groups (locations) for an Organization
+app.get("/api/peplink/organizations/:orgId/groups", async (req, res) => {
+  try {
+    const data = await peplinkFetch(`/o/${req.params.orgId}/g`);
+    res.json(data.data || data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Peplink API: List Devices for an Organization
+app.get("/api/peplink/organizations/:orgId/devices", async (req, res) => {
+  try {
+    const data = await peplinkFetch(`/o/${req.params.orgId}/d`);
+    res.json(data.data || data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Peplink API: Get Device details
+app.get("/api/peplink/devices/:deviceId", async (req, res) => {
+  try {
+    const data = await peplinkFetch(`/d/${req.params.deviceId}`);
+    res.json(data.data || data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Peplink API: Get all locations (groups) with devices
+app.get("/api/peplink/locations", async (_req, res) => {
+  try {
+    // First get all organizations
+    const orgsData = await peplinkFetch("/o");
+    const orgs = orgsData.data || orgsData;
+
+    // Then get groups for each org
+    const locations = [];
+    for (const org of orgs) {
+      try {
+        const groupsData = await peplinkFetch(`/o/${org.id}/g`);
+        const groups = groupsData.data || groupsData;
+        for (const group of groups) {
+          locations.push({
+            ...group,
+            orgId: org.id,
+            orgName: org.name,
+          });
+        }
+      } catch (e) {
+        // Skip orgs we can't access
+      }
+    }
+    res.json(locations);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -334,6 +472,17 @@ BASIC_AUTH_PASS=yourpass</pre>
         <div class="muted">Loading...</div>
       </div>
     </div>
+
+    <div class="card">
+      <div class="section-title">
+        <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/></svg></span>
+        <h2>Peplink Locations</h2>
+      </div>
+      <div class="muted">Connected Peplink InControl locations:</div>
+      <div id="peplink-container" style="margin-top:12px">
+        <div class="muted">Loading...</div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -362,7 +511,35 @@ BASIC_AUTH_PASS=yourpass</pre>
         container.innerHTML = '<div class="warn">Error loading organizations</div>';
       }
     }
+
+    async function loadPeplinkLocations() {
+      const container = document.getElementById('peplink-container');
+      try {
+        const res = await fetch('/api/peplink/locations');
+        if (!res.ok) throw new Error('Failed to fetch');
+        const locations = await res.json();
+        if (locations.error) {
+          container.innerHTML = '<div class="warn">' + locations.error + '</div>';
+          return;
+        }
+        if (!locations.length) {
+          container.innerHTML = '<div class="muted">No locations found</div>';
+          return;
+        }
+        container.innerHTML = locations.map(loc =>
+          '<div style="padding:10px;margin:6px 0;background:linear-gradient(rgba(255,255,255,0.05),rgba(255,255,255,0.05)),#121212;border:1px solid rgba(255,255,255,0.12);border-radius:8px">' +
+          '<div style="font-weight:500;color:rgba(255,255,255,0.87)">' + (loc.name || 'Unnamed') + '</div>' +
+          '<div style="font-size:12px;color:rgba(255,255,255,0.6)">Org: ' + (loc.orgName || loc.orgId) + '</div>' +
+          '<div style="font-size:12px;color:rgba(255,255,255,0.6);font-family:var(--font-mono)">ID: ' + loc.id + '</div>' +
+          '</div>'
+        ).join('');
+      } catch (err) {
+        container.innerHTML = '<div class="warn">Error loading locations</div>';
+      }
+    }
+
     loadOrganizations();
+    loadPeplinkLocations();
   </script>
 </body>
 </html>`);
