@@ -6,7 +6,8 @@ import { createProxyMiddleware } from "http-proxy-middleware";
  * ENV VARS (set these in Railway):
  * - UPSTREAM_MCP_URL        (required) e.g. "http://134.141.116.46:8000"  (no trailing slash)
  * - MERAKI_API_KEY          (required) Meraki Dashboard API key
- * - XIQ_API_TOKEN           (optional) ExtremeCloud IQ API bearer token
+ * - XIQ_USERNAME            (optional) ExtremeCloud IQ username/email
+ * - XIQ_PASSWORD            (optional) ExtremeCloud IQ password
  * - PROXY_ROUTE             (optional) default "/mcp"
  * - UI_ROUTE                (optional) default "/"
  * - BASIC_AUTH_USER         (optional) if set, enables Basic Auth for UI + proxy
@@ -46,17 +47,53 @@ async function merakiFetch(endpoint, options = {}) {
 
 // ExtremeCloud IQ API
 const XIQ_API_BASE = "https://api.extremecloudiq.com";
-const XIQ_API_TOKEN = process.env.XIQ_API_TOKEN || "";
+const XIQ_USERNAME = process.env.XIQ_USERNAME || "";
+const XIQ_PASSWORD = process.env.XIQ_PASSWORD || "";
+
+let xiqToken = null;
+let xiqTokenExpiry = 0;
+
+// XIQ Login - get bearer token
+async function xiqLogin() {
+  if (xiqToken && Date.now() < xiqTokenExpiry - 300000) {
+    return xiqToken;
+  }
+
+  if (!XIQ_USERNAME || !XIQ_PASSWORD) {
+    throw new Error("XIQ_USERNAME and XIQ_PASSWORD not configured");
+  }
+
+  const res = await fetch(`${XIQ_API_BASE}/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      username: XIQ_USERNAME,
+      password: XIQ_PASSWORD,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`XIQ login failed: ${res.status} ${res.statusText} - ${text}`);
+  }
+
+  const data = await res.json();
+  xiqToken = data.access_token;
+  // Token valid for 24 hours (86400 seconds)
+  xiqTokenExpiry = Date.now() + (data.expire_time || 86400) * 1000;
+  console.log("XIQ login successful, token expires:", new Date(xiqTokenExpiry).toISOString());
+  return xiqToken;
+}
 
 // XIQ API helper
 async function xiqFetch(endpoint, options = {}) {
-  if (!XIQ_API_TOKEN) {
-    throw new Error("XIQ_API_TOKEN not configured");
-  }
+  const token = await xiqLogin();
   const res = await fetch(`${XIQ_API_BASE}${endpoint}`, {
     method: options.method || "GET",
     headers: {
-      "Authorization": `Bearer ${XIQ_API_TOKEN}`,
+      "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json",
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
