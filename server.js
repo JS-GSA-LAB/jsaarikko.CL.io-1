@@ -45,7 +45,7 @@ async function merakiFetch(endpoint, options = {}) {
 }
 
 // ExtremeCloud IQ API
-const XIQ_API_BASE = "https://api.us.extremecloudiq.com";
+const XIQ_API_BASE = "https://api.extremecloudiq.com";
 const XIQ_API_TOKEN = process.env.XIQ_API_TOKEN || "";
 
 // XIQ API helper
