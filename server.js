@@ -270,6 +270,8 @@ app.get(UI_ROUTE, (_req, res) => {
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500&family=Roboto:wght@300;400;500;700&family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <style>
     :root {
       --background: #121212;
@@ -483,6 +485,15 @@ BASIC_AUTH_PASS=yourpass</pre>
         <div class="muted">Loading...</div>
       </div>
     </div>
+
+    <div class="card">
+      <div class="section-title">
+        <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg></span>
+        <h2>Location Map</h2>
+      </div>
+      <div class="muted">Peplink device locations worldwide:</div>
+      <div id="map" style="height:400px;margin-top:12px;border-radius:8px;border:1px solid var(--border);"></div>
+    </div>
   </div>
 
   <script>
@@ -512,6 +523,31 @@ BASIC_AUTH_PASS=yourpass</pre>
       }
     }
 
+    // Initialize map
+    const map = L.map('map', {
+      center: [30, 0],
+      zoom: 2,
+      scrollWheelZoom: true,
+    });
+
+    // Dark theme map tiles
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(map);
+
+    // Custom marker icon
+    const createMarkerIcon = (online, offline) => {
+      const color = online > 0 ? '#81C784' : (offline > 0 ? '#CF6679' : '#FFB74D');
+      return L.divIcon({
+        className: 'custom-marker',
+        html: '<div style="background:' + color + ';width:24px;height:24px;border-radius:50%;border:3px solid rgba(255,255,255,0.8);box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:#000;">' + (online + offline) + '</div>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      });
+    };
+
     async function loadPeplinkLocations() {
       const container = document.getElementById('peplink-container');
       try {
@@ -533,6 +569,34 @@ BASIC_AUTH_PASS=yourpass</pre>
           '<div style="font-size:12px;color:rgba(255,255,255,0.6);font-family:var(--font-mono)">ID: ' + loc.id + '</div>' +
           '</div>'
         ).join('');
+
+        // Add markers to map
+        const bounds = [];
+        locations.forEach(loc => {
+          if (loc.latitude && loc.longitude) {
+            const marker = L.marker([loc.latitude, loc.longitude], {
+              icon: createMarkerIcon(loc.online_device_count || 0, loc.offline_device_count || 0)
+            }).addTo(map);
+
+            marker.bindPopup(
+              '<div style="font-family:Roboto,sans-serif;min-width:180px">' +
+              '<div style="font-weight:500;font-size:14px;margin-bottom:4px">' + (loc.name || 'Unnamed') + '</div>' +
+              '<div style="font-size:12px;color:#666;margin-bottom:8px">' + (loc.address || '') + '</div>' +
+              '<div style="display:flex;gap:12px;font-size:12px">' +
+              '<span style="color:#4CAF50">Online: ' + (loc.online_device_count || 0) + '</span>' +
+              '<span style="color:#f44336">Offline: ' + (loc.offline_device_count || 0) + '</span>' +
+              '</div>' +
+              '</div>'
+            );
+
+            bounds.push([loc.latitude, loc.longitude]);
+          }
+        });
+
+        // Fit map to markers
+        if (bounds.length > 0) {
+          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 6 });
+        }
       } catch (err) {
         container.innerHTML = '<div class="warn">Error loading locations</div>';
       }
