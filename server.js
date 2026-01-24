@@ -690,6 +690,64 @@ app.get(UI_ROUTE, (_req, res) => {
       </div>
     </div>
 
+    <div style="margin:0 0 24px;padding:20px 24px;background:linear-gradient(135deg,rgba(187,134,252,0.15),rgba(3,218,197,0.15));border:1px solid rgba(187,134,252,0.3);border-radius:12px;display:flex;align-items:center;gap:16px">
+      <div style="width:48px;height:48px;background:linear-gradient(135deg,var(--primary),var(--secondary));border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.87)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>
+      </div>
+      <div>
+        <h2 style="margin:0;font-size:1.25rem;font-weight:600;color:var(--foreground)">Meraki Dynamic Troubleshooting</h2>
+        <div style="font-size:0.875rem;color:var(--foreground-muted);margin-top:4px">Real-time wireless diagnostics and event analysis</div>
+      </div>
+    </div>
+
+    <div class="card" style="border-left:3px solid var(--warning)">
+      <div class="section-title">
+        <span class="icon" style="color:var(--warning)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+        <h2>Network Health Report</h2>
+      </div>
+      <div class="muted">Wireless events and RF analysis</div>
+      <div id="network-health-container" style="margin-top:16px">
+        <div class="muted">Loading...</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card" style="margin:0;border-left:3px solid var(--secondary)">
+        <div class="section-title">
+          <span class="icon" style="color:var(--secondary)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 8.5L9 12l-3.5 3.5L2 12l3.5-3.5z"/><path d="M12 2l3.5 3.5L12 9 8.5 5.5 12 2z"/><path d="M18.5 8.5L22 12l-3.5 3.5L15 12l3.5-3.5z"/><path d="M12 15l3.5 3.5L12 22l-3.5-3.5L12 15z"/></svg></span>
+          <h2>DFS Events</h2>
+        </div>
+        <div class="muted">Radar detection events (5GHz)</div>
+        <div id="dfs-events-container" style="margin-top:12px">
+          <div class="muted">Loading...</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin:0;border-left:3px solid var(--primary)">
+        <div class="section-title">
+          <span class="icon" style="color:var(--primary)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg></span>
+          <h2>Packet Floods (WIPS)</h2>
+        </div>
+        <div class="muted">Wireless intrusion alerts</div>
+        <div id="flood-events-container" style="margin-top:12px">
+          <div class="muted">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="border-left:3px solid var(--success)">
+      <div class="section-title">
+        <span class="icon" style="color:var(--success)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></span>
+        <h2>Client Roaming Events</h2>
+      </div>
+      <div class="muted">Client associations, disassociations, and roaming between APs</div>
+      <div id="roaming-summary-container" style="margin-top:12px">
+        <div class="muted">Loading...</div>
+      </div>
+      <div id="roaming-events-container" style="margin-top:12px;max-height:300px;overflow-y:auto">
+      </div>
+    </div>
+
     <div class="card">
       <h1><span class="status-dot"></span>Service Active</h1>
       <div class="muted">
@@ -828,64 +886,6 @@ BASIC_AUTH_PASS=yourpass</pre>
       </div>
       <div id="bob-search-results" style="margin-top:12px;max-height:400px;overflow-y:auto">
         <div class="muted">Enter a search term above</div>
-      </div>
-    </div>
-
-    <div style="margin:32px 0 24px;padding:20px 24px;background:linear-gradient(135deg,rgba(187,134,252,0.15),rgba(3,218,197,0.15));border:1px solid rgba(187,134,252,0.3);border-radius:12px;display:flex;align-items:center;gap:16px">
-      <div style="width:48px;height:48px;background:linear-gradient(135deg,var(--primary),var(--secondary));border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.87)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>
-      </div>
-      <div>
-        <h2 style="margin:0;font-size:1.25rem;font-weight:600;color:var(--foreground)">Meraki Dynamic Troubleshooting</h2>
-        <div style="font-size:0.875rem;color:var(--foreground-muted);margin-top:4px">Real-time wireless diagnostics and event analysis</div>
-      </div>
-    </div>
-
-    <div class="card" style="border-left:3px solid var(--warning)">
-      <div class="section-title">
-        <span class="icon" style="color:var(--warning)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
-        <h2>Network Health Report</h2>
-      </div>
-      <div class="muted">Wireless events and RF analysis</div>
-      <div id="network-health-container" style="margin-top:16px">
-        <div class="muted">Loading...</div>
-      </div>
-    </div>
-
-    <div class="grid-2">
-      <div class="card" style="margin:0;border-left:3px solid var(--secondary)">
-        <div class="section-title">
-          <span class="icon" style="color:var(--secondary)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 8.5L9 12l-3.5 3.5L2 12l3.5-3.5z"/><path d="M12 2l3.5 3.5L12 9 8.5 5.5 12 2z"/><path d="M18.5 8.5L22 12l-3.5 3.5L15 12l3.5-3.5z"/><path d="M12 15l3.5 3.5L12 22l-3.5-3.5L12 15z"/></svg></span>
-          <h2>DFS Events</h2>
-        </div>
-        <div class="muted">Radar detection events (5GHz)</div>
-        <div id="dfs-events-container" style="margin-top:12px">
-          <div class="muted">Loading...</div>
-        </div>
-      </div>
-
-      <div class="card" style="margin:0;border-left:3px solid var(--primary)">
-        <div class="section-title">
-          <span class="icon" style="color:var(--primary)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg></span>
-          <h2>Packet Floods (WIPS)</h2>
-        </div>
-        <div class="muted">Wireless intrusion alerts</div>
-        <div id="flood-events-container" style="margin-top:12px">
-          <div class="muted">Loading...</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card" style="border-left:3px solid var(--success)">
-      <div class="section-title">
-        <span class="icon" style="color:var(--success)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></span>
-        <h2>Client Roaming Events</h2>
-      </div>
-      <div class="muted">Client associations, disassociations, and roaming between APs</div>
-      <div id="roaming-summary-container" style="margin-top:12px">
-        <div class="muted">Loading...</div>
-      </div>
-      <div id="roaming-events-container" style="margin-top:12px;max-height:300px;overflow-y:auto">
       </div>
     </div>
 
