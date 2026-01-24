@@ -1253,14 +1253,15 @@ BASIC_AUTH_PASS=yourpass</pre>
         device: 'BOBKit-33-US-West-1',
         organization: 'Extreme Networks',
         group: 'US West',
-        model: 'PepLink Balance 20X',
-        serial: 'BOBKIT-33-001',
+        model: 'Peplink MAX BR1 Mini',
+        serial: '1930-C44B-0217',
         status: 'online',
         latitude: 38.884247,
         longitude: -104.82047,
         address: 'Colorado Springs, CO',
-        lastUpdate: '2025-10-28 20:40:50',
-        tag: 'SE_Team_West',
+        lastUpdate: '2026-01-04 17:16:59',
+        tag: 'Scott_Singer',
+        firmware: '8.4.0 build 5075',
         isStatic: true
       }
     ];
