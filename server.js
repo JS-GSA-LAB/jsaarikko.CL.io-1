@@ -346,7 +346,9 @@ app.get("/api/networks/:networkId/dfs-events", async (req, res) => {
 // Meraki API: Get Wireless Health Report
 app.get("/api/networks/:networkId/wireless-health", async (req, res) => {
   try {
-    const events = await merakiFetch(`/networks/${req.params.networkId}/events?productType=wireless&perPage=100`);
+    // Support timespan in seconds (default 1 day = 86400)
+    const timespan = req.query.timespan || 86400;
+    const events = await merakiFetch(`/networks/${req.params.networkId}/events?productType=wireless&perPage=1000&timespan=${timespan}`);
     const allEvents = events.events || [];
 
     // Categorize events
@@ -922,7 +924,14 @@ app.get(UI_ROUTE, (_req, res) => {
         <span class="icon" style="color:var(--success)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></span>
         <h2>Client Roaming Events</h2>
       </div>
-      <div class="muted">Client associations, disassociations, and roaming between APs</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div class="muted">Client associations, disassociations, and roaming between APs</div>
+        <div id="roaming-duration-selector" style="display:flex;gap:4px">
+          <button onclick="loadRoamingEvents(1)" data-days="1" style="padding:4px 12px;font-size:11px;border:1px solid rgba(255,255,255,0.2);border-radius:6px;background:rgba(129,199,132,0.2);color:var(--success);cursor:pointer;font-family:var(--font-sans)">1 Day</button>
+          <button onclick="loadRoamingEvents(2)" data-days="2" style="padding:4px 12px;font-size:11px;border:1px solid rgba(255,255,255,0.12);border-radius:6px;background:transparent;color:rgba(255,255,255,0.6);cursor:pointer;font-family:var(--font-sans)">2 Days</button>
+          <button onclick="loadRoamingEvents(7)" data-days="7" style="padding:4px 12px;font-size:11px;border:1px solid rgba(255,255,255,0.12);border-radius:6px;background:transparent;color:rgba(255,255,255,0.6);cursor:pointer;font-family:var(--font-sans)">7 Days</button>
+        </div>
+      </div>
       <div id="roaming-summary-container" style="margin-top:12px">
         <div class="muted">Loading...</div>
       </div>
@@ -1601,15 +1610,65 @@ BASIC_AUTH_PASS=yourpass</pre>
         '<strong>Analysis:</strong> Packet floods from neighboring APs (eero, NETGEAR, Apple). No security threat - dense RF environment.</div>';
       }
 
+      // Load roaming events with default 1 day
+      loadRoamingEvents(1);
+    }
+
+    // Roaming events loader with duration selector
+    async function loadRoamingEvents(days) {
+      const roamingSummary = document.getElementById('roaming-summary-container');
+      const roamingContainer = document.getElementById('roaming-events-container');
+
+      // Update button styles
+      const buttons = document.querySelectorAll('#roaming-duration-selector button');
+      buttons.forEach(btn => {
+        if (parseInt(btn.dataset.days) === days) {
+          btn.style.background = 'rgba(129,199,132,0.2)';
+          btn.style.borderColor = 'rgba(255,255,255,0.2)';
+          btn.style.color = 'var(--success)';
+        } else {
+          btn.style.background = 'transparent';
+          btn.style.borderColor = 'rgba(255,255,255,0.12)';
+          btn.style.color = 'rgba(255,255,255,0.6)';
+        }
+      });
+
+      // Show loading state
+      roamingSummary.innerHTML = '<div class="muted">Loading ' + days + ' day' + (days > 1 ? 's' : '') + ' of events...</div>';
+      roamingContainer.innerHTML = '';
+
+      const networks = [
+        { id: 'L_636133447366083359', name: 'Freehold, NJ' },
+        { id: 'L_636133447366083398', name: 'Suffolk, VA' }
+      ];
+
+      const timespan = days * 86400; // Convert days to seconds
+      let allRoaming = [];
+      let allTopClients = [];
+      let totalUniqueClients = 0;
+
+      for (const net of networks) {
+        try {
+          const res = await fetch('/api/networks/' + net.id + '/wireless-health?timespan=' + timespan);
+          if (res.ok) {
+            const data = await res.json();
+            allRoaming = allRoaming.concat((data.roaming?.events || []).map(e => ({...e, network: net.name})));
+            allTopClients = allTopClients.concat((data.roaming?.topClients || []).map(c => ({...c, network: net.name})));
+            totalUniqueClients += data.roaming?.uniqueClients || 0;
+          }
+        } catch (err) {
+          console.error('Error loading roaming for', net.name, err);
+        }
+      }
+
       // Roaming Events Summary
       if (allRoaming.length === 0) {
-        roamingSummary.innerHTML = '<div class="muted" style="font-size:13px">No roaming events detected</div>';
+        roamingSummary.innerHTML = '<div class="muted" style="font-size:13px">No roaming events in the last ' + days + ' day' + (days > 1 ? 's' : '') + '</div>';
         roamingContainer.innerHTML = '';
       } else {
         // Summary stats
         const assocCount = allRoaming.filter(e => e.type && e.type.includes('association') && !e.type.includes('dis')).length;
         const disassocCount = allRoaming.filter(e => e.type && e.type.includes('disassociation')).length;
-        const authCount = allRoaming.filter(e => e.type && e.type.includes('auth')).length;
 
         roamingSummary.innerHTML =
           '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
@@ -1622,6 +1681,9 @@ BASIC_AUTH_PASS=yourpass</pre>
           '<div style="padding:8px 12px;background:rgba(3,218,197,0.15);border-radius:6px">' +
           '<span style="font-size:16px;font-weight:600;color:var(--secondary)">' + totalUniqueClients + '</span>' +
           '<span style="font-size:11px;color:rgba(255,255,255,0.5);margin-left:6px">Unique Clients</span></div>' +
+          '<div style="padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:6px">' +
+          '<span style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.7)">' + days + 'd</span>' +
+          '<span style="font-size:11px;color:rgba(255,255,255,0.5);margin-left:6px">Time Range</span></div>' +
           '</div>';
 
         // Top roaming clients
