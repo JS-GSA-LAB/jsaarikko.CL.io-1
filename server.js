@@ -289,17 +289,37 @@ app.get("/api/networks/:networkId/wireless-health", async (req, res) => {
     const dfsEvents = allEvents.filter(e => e.type === 'dfs_event');
     const floodEvents = allEvents.filter(e => e.type === 'packet_flood');
     const rfChanges = allEvents.filter(e => e.type === 'sunray_auto_rf_channel_change');
+    const roamEvents = allEvents.filter(e =>
+      e.type === 'association' ||
+      e.type === 'disassociation' ||
+      e.type === '802.11_association' ||
+      e.type === '802.11_disassociation' ||
+      e.type === 'roam' ||
+      e.type === 'wpa_auth' ||
+      e.type === 'wpa_deauth'
+    );
 
     // Get unique devices affected
     const dfsDevices = [...new Set(dfsEvents.map(e => e.deviceName))];
     const floodDevices = [...new Set(floodEvents.map(e => e.deviceName))];
+    const roamDevices = [...new Set(roamEvents.map(e => e.deviceName))];
+
+    // Analyze roaming patterns
+    const clientRoams = {};
+    roamEvents.forEach(e => {
+      const client = e.clientMac || e.clientDescription || 'unknown';
+      if (!clientRoams[client]) clientRoams[client] = { events: [], devices: new Set() };
+      clientRoams[client].events.push(e);
+      if (e.deviceName) clientRoams[client].devices.add(e.deviceName);
+    });
 
     res.json({
       timeRange: { start: events.pageStartAt, end: events.pageEndAt },
       summary: {
         dfsEvents: dfsEvents.length,
         packetFloods: floodEvents.length,
-        rfOptimizations: rfChanges.length
+        rfOptimizations: rfChanges.length,
+        roamEvents: roamEvents.length
       },
       dfs: {
         count: dfsEvents.length,
@@ -320,6 +340,25 @@ app.get("/api/networks/:networkId/wireless-health", async (req, res) => {
           channel: e.eventData?.channel,
           packet: e.eventData?.packet
         }))
+      },
+      roaming: {
+        count: roamEvents.length,
+        devicesAffected: roamDevices,
+        uniqueClients: Object.keys(clientRoams).length,
+        events: roamEvents.slice(0, 20).map(e => ({
+          time: e.occurredAt,
+          type: e.type,
+          device: e.deviceName,
+          client: e.clientDescription || e.clientMac,
+          clientMac: e.clientMac,
+          ssid: e.eventData?.ssid || e.eventData?.ssid_name,
+          rssi: e.eventData?.rssi,
+          channel: e.eventData?.channel
+        })),
+        topClients: Object.entries(clientRoams)
+          .map(([mac, data]) => ({ mac, count: data.events.length, aps: [...data.devices] }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 10)
       }
     });
   } catch (err) {
@@ -781,6 +820,19 @@ BASIC_AUTH_PASS=yourpass</pre>
       </div>
     </div>
 
+    <div class="card" style="border-left:3px solid var(--success)">
+      <div class="section-title">
+        <span class="icon" style="color:var(--success)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></span>
+        <h2>Client Roaming Events</h2>
+      </div>
+      <div class="muted">Client associations, disassociations, and roaming between APs</div>
+      <div id="roaming-summary-container" style="margin-top:12px">
+        <div class="muted">Loading...</div>
+      </div>
+      <div id="roaming-events-container" style="margin-top:12px;max-height:300px;overflow-y:auto">
+      </div>
+    </div>
+
     </div>
 
   <script>
@@ -1014,6 +1066,8 @@ BASIC_AUTH_PASS=yourpass</pre>
       const healthContainer = document.getElementById('network-health-container');
       const dfsContainer = document.getElementById('dfs-events-container');
       const floodContainer = document.getElementById('flood-events-container');
+      const roamingSummary = document.getElementById('roaming-summary-container');
+      const roamingContainer = document.getElementById('roaming-events-container');
 
       // Hardcoded network IDs for now (Freehold and Suffolk)
       const networks = [
@@ -1023,7 +1077,10 @@ BASIC_AUTH_PASS=yourpass</pre>
 
       let allDfs = [];
       let allFloods = [];
+      let allRoaming = [];
+      let allTopClients = [];
       let totalRf = 0;
+      let totalUniqueClients = 0;
 
       for (const net of networks) {
         try {
@@ -1032,7 +1089,10 @@ BASIC_AUTH_PASS=yourpass</pre>
             const data = await res.json();
             allDfs = allDfs.concat((data.dfs?.events || []).map(e => ({...e, network: net.name})));
             allFloods = allFloods.concat((data.floods?.events || []).map(e => ({...e, network: net.name})));
+            allRoaming = allRoaming.concat((data.roaming?.events || []).map(e => ({...e, network: net.name})));
+            allTopClients = allTopClients.concat((data.roaming?.topClients || []).map(c => ({...c, network: net.name})));
             totalRf += data.summary?.rfOptimizations || 0;
+            totalUniqueClients += data.roaming?.uniqueClients || 0;
           }
         } catch (err) {
           console.error('Error loading health for', net.name, err);
@@ -1042,6 +1102,7 @@ BASIC_AUTH_PASS=yourpass</pre>
       // Health Summary
       const dfsCount = allDfs.length;
       const floodCount = allFloods.length;
+      const roamCount = allRoaming.length;
       const status = dfsCount === 0 && floodCount === 0 ? 'healthy' : dfsCount > 5 || floodCount > 20 ? 'warning' : 'info';
       const statusColor = status === 'healthy' ? 'var(--success)' : status === 'warning' ? 'var(--warning)' : 'var(--secondary)';
       const statusText = status === 'healthy' ? 'All Clear' : status === 'warning' ? 'Attention Needed' : 'Normal Activity';
@@ -1057,6 +1118,9 @@ BASIC_AUTH_PASS=yourpass</pre>
         '<div style="padding:12px 16px;background:linear-gradient(rgba(255,255,255,0.05),rgba(255,255,255,0.05)),#121212;border:1px solid rgba(255,255,255,0.12);border-radius:8px;flex:1;min-width:80px">' +
         '<div style="font-size:20px;font-weight:600;color:var(--primary)">' + floodCount + '</div>' +
         '<div style="font-size:11px;color:rgba(255,255,255,0.5)">WIPS Alerts</div></div>' +
+        '<div style="padding:12px 16px;background:linear-gradient(rgba(255,255,255,0.05),rgba(255,255,255,0.05)),#121212;border:1px solid rgba(255,255,255,0.12);border-radius:8px;flex:1;min-width:80px">' +
+        '<div style="font-size:20px;font-weight:600;color:var(--success)">' + roamCount + '</div>' +
+        '<div style="font-size:11px;color:rgba(255,255,255,0.5)">Roam Events</div></div>' +
         '<div style="padding:12px 16px;background:linear-gradient(rgba(255,255,255,0.05),rgba(255,255,255,0.05)),#121212;border:1px solid rgba(255,255,255,0.12);border-radius:8px;flex:1;min-width:80px">' +
         '<div style="font-size:20px;font-weight:600;color:var(--warning)">' + totalRf + '</div>' +
         '<div style="font-size:11px;color:rgba(255,255,255,0.5)">RF Changes</div></div>' +
@@ -1101,6 +1165,54 @@ BASIC_AUTH_PASS=yourpass</pre>
         ).join('') +
         '<div style="margin-top:8px;padding:8px;background:rgba(187,134,252,0.1);border-radius:6px;font-size:11px;color:rgba(255,255,255,0.7)">' +
         '<strong>Analysis:</strong> Packet floods from neighboring APs (eero, NETGEAR, Apple). No security threat - dense RF environment.</div>';
+      }
+
+      // Roaming Events Summary
+      if (allRoaming.length === 0) {
+        roamingSummary.innerHTML = '<div class="muted" style="font-size:13px">No roaming events detected</div>';
+        roamingContainer.innerHTML = '';
+      } else {
+        // Summary stats
+        const assocCount = allRoaming.filter(e => e.type && e.type.includes('association') && !e.type.includes('dis')).length;
+        const disassocCount = allRoaming.filter(e => e.type && e.type.includes('disassociation')).length;
+        const authCount = allRoaming.filter(e => e.type && e.type.includes('auth')).length;
+
+        roamingSummary.innerHTML =
+          '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
+          '<div style="padding:8px 12px;background:rgba(129,199,132,0.15);border-radius:6px">' +
+          '<span style="font-size:16px;font-weight:600;color:var(--success)">' + assocCount + '</span>' +
+          '<span style="font-size:11px;color:rgba(255,255,255,0.5);margin-left:6px">Associations</span></div>' +
+          '<div style="padding:8px 12px;background:rgba(207,102,121,0.15);border-radius:6px">' +
+          '<span style="font-size:16px;font-weight:600;color:var(--destructive)">' + disassocCount + '</span>' +
+          '<span style="font-size:11px;color:rgba(255,255,255,0.5);margin-left:6px">Disassociations</span></div>' +
+          '<div style="padding:8px 12px;background:rgba(3,218,197,0.15);border-radius:6px">' +
+          '<span style="font-size:16px;font-weight:600;color:var(--secondary)">' + totalUniqueClients + '</span>' +
+          '<span style="font-size:11px;color:rgba(255,255,255,0.5);margin-left:6px">Unique Clients</span></div>' +
+          '</div>';
+
+        // Top roaming clients
+        if (allTopClients.length > 0) {
+          const merged = {};
+          allTopClients.forEach(c => {
+            if (!merged[c.mac]) merged[c.mac] = { count: 0, aps: new Set() };
+            merged[c.mac].count += c.count;
+            c.aps.forEach(ap => merged[c.mac].aps.add(ap));
+          });
+
+          const topClients = Object.entries(merged)
+            .sort((a, b) => b[1].count - a[1].count)
+            .slice(0, 8);
+
+          roamingContainer.innerHTML =
+            '<div style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.7);margin-bottom:8px">Top Roaming Clients</div>' +
+            topClients.map(([mac, info]) =>
+              '<div style="padding:8px 10px;margin:4px 0;background:linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03)),#121212;border-radius:6px">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center">' +
+              '<span style="font-size:12px;font-family:var(--font-mono);color:rgba(255,255,255,0.87)">' + mac + '</span>' +
+              '<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:var(--success);color:#000">' + info.count + ' events</span></div>' +
+              '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px">Seen on: ' + [...info.aps].join(', ') + '</div></div>'
+            ).join('');
+        }
       }
     }
   </script>
