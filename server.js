@@ -24,6 +24,8 @@ try {
  * - MERAKI_API_KEY          (required) Meraki Dashboard API key
  * - XIQ_USERNAME            (optional) ExtremeCloud IQ username/email
  * - XIQ_PASSWORD            (optional) ExtremeCloud IQ password
+ * - PEPLINK_CLIENT_ID       (optional) PepLink InControl2 OAuth Client ID
+ * - PEPLINK_CLIENT_SECRET   (optional) PepLink InControl2 OAuth Client Secret
  * - PROXY_ROUTE             (optional) default "/mcp"
  * - UI_ROUTE                (optional) default "/"
  * - BASIC_AUTH_USER         (optional) if set, enables Basic Auth for UI + proxy
@@ -117,6 +119,68 @@ async function xiqFetch(endpoint, options = {}) {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`XIQ API error: ${res.status} ${res.statusText} - ${text}`);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : { success: true };
+}
+
+// PepLink InControl2 API
+const PEPLINK_API_BASE = "https://api.ic.peplink.com";
+const PEPLINK_CLIENT_ID = process.env.PEPLINK_CLIENT_ID || "";
+const PEPLINK_CLIENT_SECRET = process.env.PEPLINK_CLIENT_SECRET || "";
+
+let peplinkToken = null;
+let peplinkTokenExpiry = 0;
+
+// PepLink OAuth2 - get access token
+async function peplinkLogin() {
+  if (peplinkToken && Date.now() < peplinkTokenExpiry - 300000) {
+    return peplinkToken;
+  }
+
+  if (!PEPLINK_CLIENT_ID || !PEPLINK_CLIENT_SECRET) {
+    throw new Error("PEPLINK_CLIENT_ID and PEPLINK_CLIENT_SECRET not configured");
+  }
+
+  const res = await fetch(`${PEPLINK_API_BASE}/api/oauth2/token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      client_id: PEPLINK_CLIENT_ID,
+      client_secret: PEPLINK_CLIENT_SECRET,
+      grant_type: "client_credentials",
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`PepLink login failed: ${res.status} ${res.statusText} - ${text}`);
+  }
+
+  const data = await res.json();
+  peplinkToken = data.access_token;
+  // Token valid for expires_in seconds (typically 3600)
+  peplinkTokenExpiry = Date.now() + (data.expires_in || 3600) * 1000;
+  console.log("PepLink login successful, token expires:", new Date(peplinkTokenExpiry).toISOString());
+  return peplinkToken;
+}
+
+// PepLink API helper
+async function peplinkFetch(endpoint, options = {}) {
+  const token = await peplinkLogin();
+  const res = await fetch(`${PEPLINK_API_BASE}${endpoint}`, {
+    method: options.method || "GET",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`PepLink API error: ${res.status} ${res.statusText} - ${text}`);
   }
   const text = await res.text();
   return text ? JSON.parse(text) : { success: true };
@@ -478,6 +542,122 @@ app.get("/api/xiq/network/summary", async (req, res) => {
   }
 });
 
+// PepLink API: List Organizations
+app.get("/api/peplink/organizations", async (req, res) => {
+  try {
+    const data = await peplinkFetch("/rest/o");
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PepLink API: List Groups in Organization
+app.get("/api/peplink/organizations/:orgId/groups", async (req, res) => {
+  try {
+    const data = await peplinkFetch(`/rest/o/${req.params.orgId}/g`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PepLink API: List Devices in Group
+app.get("/api/peplink/organizations/:orgId/groups/:groupId/devices", async (req, res) => {
+  try {
+    const data = await peplinkFetch(`/rest/o/${req.params.orgId}/g/${req.params.groupId}/d`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PepLink API: Get Device Location
+app.get("/api/peplink/organizations/:orgId/groups/:groupId/devices/:deviceId/location", async (req, res) => {
+  try {
+    const data = await peplinkFetch(`/rest/o/${req.params.orgId}/g/${req.params.groupId}/d/${req.params.deviceId}/loc`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PepLink API: Get All Device Locations (aggregated)
+app.get("/api/peplink/locations", async (req, res) => {
+  try {
+    const locations = [];
+
+    // Get all organizations
+    const orgs = await peplinkFetch("/rest/o");
+    const orgList = orgs.data || orgs || [];
+
+    for (const org of orgList) {
+      const orgId = org.id || org.org_id;
+      if (!orgId) continue;
+
+      // Get groups in this org
+      const groups = await peplinkFetch(`/rest/o/${orgId}/g`);
+      const groupList = groups.data || groups || [];
+
+      for (const group of groupList) {
+        const groupId = group.id || group.group_id;
+        if (!groupId) continue;
+
+        // Get devices in this group
+        const devices = await peplinkFetch(`/rest/o/${orgId}/g/${groupId}/d`);
+        const deviceList = devices.data || devices || [];
+
+        for (const device of deviceList) {
+          const deviceId = device.id || device.device_id || device.sn;
+          if (!deviceId) continue;
+
+          try {
+            // Get location for this device
+            const loc = await peplinkFetch(`/rest/o/${orgId}/g/${groupId}/d/${deviceId}/loc`);
+            locations.push({
+              organization: org.name || orgId,
+              orgId,
+              group: group.name || groupId,
+              groupId,
+              device: device.name || device.sn || deviceId,
+              deviceId,
+              model: device.model || device.product_name,
+              serial: device.sn,
+              status: device.status || device.online_status,
+              location: loc.data || loc,
+              latitude: loc.data?.latitude || loc.latitude,
+              longitude: loc.data?.longitude || loc.longitude,
+              address: loc.data?.address || loc.address
+            });
+          } catch (locErr) {
+            // Device may not have location data
+            locations.push({
+              organization: org.name || orgId,
+              orgId,
+              group: group.name || groupId,
+              groupId,
+              device: device.name || device.sn || deviceId,
+              deviceId,
+              model: device.model || device.product_name,
+              serial: device.sn,
+              status: device.status || device.online_status,
+              location: null,
+              error: "Location not available"
+            });
+          }
+        }
+      }
+    }
+
+    res.json({
+      total: locations.length,
+      locations
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // BOB Asset Tracker API
 app.get("/api/assets", (req, res) => {
   const { owner, type, region, search, page = 1, limit = 50 } = req.query;
@@ -748,6 +928,19 @@ app.get(UI_ROUTE, (_req, res) => {
       </div>
     </div>
 
+    <div class="card" style="border-left:3px solid #FF6B35">
+      <div class="section-title">
+        <span class="icon" style="color:#FF6B35"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/></svg></span>
+        <h2>PepLink Locations</h2>
+      </div>
+      <div class="muted">SD-WAN device locations from InControl2</div>
+      <div id="peplink-summary-container" style="margin-top:12px">
+        <div class="muted">Loading...</div>
+      </div>
+      <div id="peplink-locations-container" style="margin-top:12px;max-height:400px;overflow-y:auto">
+      </div>
+    </div>
+
     <div class="card">
       <h1><span class="status-dot"></span>Service Active</h1>
       <div class="muted">
@@ -1008,6 +1201,73 @@ BASIC_AUTH_PASS=yourpass</pre>
     loadXiqClients();
     loadBobStats();
     loadNetworkHealth();
+    loadPeplinkLocations();
+
+    async function loadPeplinkLocations() {
+      const summaryContainer = document.getElementById('peplink-summary-container');
+      const locationsContainer = document.getElementById('peplink-locations-container');
+
+      try {
+        const res = await fetch('/api/peplink/locations');
+        if (!res.ok) throw new Error('Failed to fetch');
+        const data = await res.json();
+
+        if (data.error) {
+          summaryContainer.innerHTML = '<div class="warn">' + data.error + '</div>';
+          return;
+        }
+
+        const locations = data.locations || [];
+        const onlineCount = locations.filter(l => l.status === 'online' || l.status === 1).length;
+        const withGps = locations.filter(l => l.latitude && l.longitude).length;
+
+        // Summary stats
+        summaryContainer.innerHTML =
+          '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
+          '<div style="padding:8px 12px;background:rgba(255,107,53,0.15);border-radius:6px">' +
+          '<span style="font-size:16px;font-weight:600;color:#FF6B35">' + locations.length + '</span>' +
+          '<span style="font-size:11px;color:rgba(255,255,255,0.5);margin-left:6px">Total Devices</span></div>' +
+          '<div style="padding:8px 12px;background:rgba(129,199,132,0.15);border-radius:6px">' +
+          '<span style="font-size:16px;font-weight:600;color:var(--success)">' + onlineCount + '</span>' +
+          '<span style="font-size:11px;color:rgba(255,255,255,0.5);margin-left:6px">Online</span></div>' +
+          '<div style="padding:8px 12px;background:rgba(3,218,197,0.15);border-radius:6px">' +
+          '<span style="font-size:16px;font-weight:600;color:var(--secondary)">' + withGps + '</span>' +
+          '<span style="font-size:11px;color:rgba(255,255,255,0.5);margin-left:6px">With GPS</span></div>' +
+          '</div>';
+
+        // Location list
+        if (locations.length === 0) {
+          locationsContainer.innerHTML = '<div class="muted">No PepLink devices found</div>';
+        } else {
+          locationsContainer.innerHTML = locations.map(loc => {
+            const statusColor = (loc.status === 'online' || loc.status === 1) ? 'var(--success)' : 'var(--destructive)';
+            const statusText = (loc.status === 'online' || loc.status === 1) ? 'Online' : 'Offline';
+            const hasLocation = loc.latitude && loc.longitude;
+
+            return '<div style="padding:10px 12px;margin:6px 0;background:linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03)),#121212;border-radius:8px;border-left:3px solid ' + statusColor + '">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center">' +
+              '<span style="font-size:13px;font-weight:500;color:rgba(255,255,255,0.87)">' + (loc.device || 'Unknown') + '</span>' +
+              '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:' + statusColor + ';color:#000">' + statusText + '</span></div>' +
+              '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">' +
+              (loc.model ? loc.model + ' · ' : '') +
+              (loc.serial ? 'S/N: ' + loc.serial : '') + '</div>' +
+              '<div style="font-size:11px;color:rgba(255,255,255,0.6);margin-top:2px">' +
+              '<span style="color:#FF6B35">' + (loc.organization || '') + '</span>' +
+              (loc.group ? ' / ' + loc.group : '') + '</div>' +
+              (hasLocation ?
+                '<div style="font-size:11px;color:var(--secondary);margin-top:4px">' +
+                '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/></svg>' +
+                loc.latitude.toFixed(4) + ', ' + loc.longitude.toFixed(4) +
+                (loc.address ? ' · ' + loc.address : '') + '</div>' :
+                (loc.error ? '<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:4px">' + loc.error + '</div>' : '')) +
+              '</div>';
+          }).join('');
+        }
+      } catch (err) {
+        summaryContainer.innerHTML = '<div class="warn">PepLink not configured</div>';
+        locationsContainer.innerHTML = '<div class="muted" style="font-size:12px">Set PEPLINK_CLIENT_ID and PEPLINK_CLIENT_SECRET in Railway</div>';
+      }
+    }
 
     async function loadBobStats() {
       const statsContainer = document.getElementById('bob-stats-container');
