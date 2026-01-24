@@ -1,6 +1,22 @@
 import express from "express";
 import helmet from "helmet";
 import { createProxyMiddleware } from "http-proxy-middleware";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Load BOB Asset Tracker data
+let bobAssets = [];
+try {
+  const assetsPath = join(__dirname, "assets.json");
+  bobAssets = JSON.parse(readFileSync(assetsPath, "utf8"));
+  console.log(`Loaded ${bobAssets.length} BOB assets`);
+} catch (err) {
+  console.warn("Could not load assets.json:", err.message);
+}
 
 /**
  * ENV VARS (set these in Railway):
@@ -276,6 +292,61 @@ app.get("/api/xiq/network/summary", async (req, res) => {
   }
 });
 
+// BOB Asset Tracker API
+app.get("/api/assets", (req, res) => {
+  const { owner, type, region, search, page = 1, limit = 50 } = req.query;
+  let filtered = [...bobAssets];
+
+  if (owner) {
+    filtered = filtered.filter(a => a.owner && a.owner.toLowerCase().includes(owner.toLowerCase()));
+  }
+  if (type) {
+    filtered = filtered.filter(a => a.type && a.type.toLowerCase() === type.toLowerCase());
+  }
+  if (region) {
+    filtered = filtered.filter(a => a.region && a.region.toLowerCase().includes(region.toLowerCase()));
+  }
+  if (search) {
+    const s = search.toLowerCase();
+    filtered = filtered.filter(a =>
+      (a.deviceName && a.deviceName.toLowerCase().includes(s)) ||
+      (a.model && a.model.toLowerCase().includes(s)) ||
+      (a.serial && a.serial.toLowerCase().includes(s)) ||
+      (a.owner && a.owner.toLowerCase().includes(s))
+    );
+  }
+
+  const start = (page - 1) * limit;
+  const paginated = filtered.slice(start, start + Number(limit));
+
+  res.json({
+    total: filtered.length,
+    page: Number(page),
+    limit: Number(limit),
+    data: paginated
+  });
+});
+
+// BOB Asset Tracker Statistics
+app.get("/api/assets/stats", (req, res) => {
+  const owners = {};
+  const types = {};
+  const regions = {};
+
+  for (const a of bobAssets) {
+    if (a.owner) owners[a.owner] = (owners[a.owner] || 0) + 1;
+    if (a.type) types[a.type] = (types[a.type] || 0) + 1;
+    if (a.region) regions[a.region] = (regions[a.region] || 0) + 1;
+  }
+
+  res.json({
+    total: bobAssets.length,
+    byOwner: Object.entries(owners).sort((a, b) => b[1] - a[1]).slice(0, 15),
+    byType: Object.entries(types).sort((a, b) => b[1] - a[1]),
+    byRegion: Object.entries(regions).sort((a, b) => b[1] - a[1]).slice(0, 15)
+  });
+});
+
 // UI
 app.get(UI_ROUTE, (_req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -539,6 +610,50 @@ BASIC_AUTH_PASS=yourpass</pre>
       </div>
     </div>
 
+    <div class="card">
+      <div class="section-title">
+        <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></span>
+        <h2>BOB Asset Tracker</h2>
+      </div>
+      <div class="muted">SE Equipment Inventory</div>
+      <div id="bob-stats-container" style="margin-top:12px">
+        <div class="muted">Loading...</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></span>
+        <h2>Assets by Type</h2>
+      </div>
+      <div id="bob-types-container" style="margin-top:12px">
+        <div class="muted">Loading...</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+        <h2>Top Asset Owners</h2>
+      </div>
+      <div id="bob-owners-container" style="margin-top:12px">
+        <div class="muted">Loading...</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
+        <h2>Search Assets</h2>
+      </div>
+      <div style="margin-top:12px">
+        <input type="text" id="asset-search" placeholder="Search by name, model, serial, or owner..." style="width:100%;padding:10px 14px;background:linear-gradient(rgba(255,255,255,0.05),rgba(255,255,255,0.05)),#121212;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:rgba(255,255,255,0.87);font-family:var(--font-sans);font-size:14px;outline:none;" />
+      </div>
+      <div id="bob-search-results" style="margin-top:12px;max-height:400px;overflow-y:auto">
+        <div class="muted">Enter a search term above</div>
+      </div>
+    </div>
+
     </div>
 
   <script>
@@ -683,6 +798,116 @@ BASIC_AUTH_PASS=yourpass</pre>
     loadXiqSites();
     loadXiqClients();
     loadXiqAlerts();
+    loadBobStats();
+
+    async function loadBobStats() {
+      const statsContainer = document.getElementById('bob-stats-container');
+      const typesContainer = document.getElementById('bob-types-container');
+      const ownersContainer = document.getElementById('bob-owners-container');
+      try {
+        const res = await fetch('/api/assets/stats');
+        if (!res.ok) throw new Error('Failed to fetch');
+        const stats = await res.json();
+
+        // Stats summary
+        statsContainer.innerHTML =
+          '<div style="display:flex;gap:16px;flex-wrap:wrap">' +
+          '<div style="padding:16px 20px;background:linear-gradient(135deg,var(--primary),var(--secondary));border-radius:12px;flex:1;min-width:120px">' +
+          '<div style="font-size:28px;font-weight:700;color:rgba(0,0,0,0.87)">' + stats.total + '</div>' +
+          '<div style="font-size:12px;color:rgba(0,0,0,0.6)">Total Assets</div></div>' +
+          '<div style="padding:16px 20px;background:linear-gradient(rgba(255,255,255,0.07),rgba(255,255,255,0.07)),#121212;border:1px solid rgba(255,255,255,0.12);border-radius:12px;flex:1;min-width:120px">' +
+          '<div style="font-size:28px;font-weight:700;color:var(--secondary)">' + stats.byType.length + '</div>' +
+          '<div style="font-size:12px;color:rgba(255,255,255,0.6)">Asset Types</div></div>' +
+          '<div style="padding:16px 20px;background:linear-gradient(rgba(255,255,255,0.07),rgba(255,255,255,0.07)),#121212;border:1px solid rgba(255,255,255,0.12);border-radius:12px;flex:1;min-width:120px">' +
+          '<div style="font-size:28px;font-weight:700;color:var(--primary)">' + stats.byOwner.length + '</div>' +
+          '<div style="font-size:12px;color:rgba(255,255,255,0.6)">SE Owners</div></div>' +
+          '<div style="padding:16px 20px;background:linear-gradient(rgba(255,255,255,0.07),rgba(255,255,255,0.07)),#121212;border:1px solid rgba(255,255,255,0.12);border-radius:12px;flex:1;min-width:120px">' +
+          '<div style="font-size:28px;font-weight:700;color:var(--warning)">' + stats.byRegion.length + '</div>' +
+          '<div style="font-size:12px;color:rgba(255,255,255,0.6)">Regions</div></div>' +
+          '</div>';
+
+        // Types breakdown
+        const typeColors = {
+          'Switch': '#BB86FC',
+          'AP': '#03DAC5',
+          'SD-WAN': '#FFB74D',
+          'PEPLink': '#CF6679',
+          'Verkada': '#81C784',
+          'XA1400': '#64B5F6',
+          'i-Pro': '#F48FB1'
+        };
+        typesContainer.innerHTML = stats.byType.map(([type, count]) => {
+          const pct = Math.round((count / stats.total) * 100);
+          const color = typeColors[type] || '#888';
+          return '<div style="margin:8px 0">' +
+            '<div style="display:flex;justify-content:space-between;margin-bottom:4px">' +
+            '<span style="font-size:13px;color:rgba(255,255,255,0.87)">' + type + '</span>' +
+            '<span style="font-size:13px;color:rgba(255,255,255,0.6)">' + count + ' (' + pct + '%)</span>' +
+            '</div>' +
+            '<div style="height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden">' +
+            '<div style="height:100%;width:' + pct + '%;background:' + color + ';border-radius:4px"></div>' +
+            '</div></div>';
+        }).join('');
+
+        // Top owners
+        ownersContainer.innerHTML = stats.byOwner.slice(0, 10).map(([owner, count], i) =>
+          '<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06)">' +
+          '<div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--primary),var(--secondary));display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:rgba(0,0,0,0.87)">' + (i + 1) + '</div>' +
+          '<div style="flex:1">' +
+          '<div style="font-size:13px;color:rgba(255,255,255,0.87)">' + owner + '</div>' +
+          '</div>' +
+          '<div style="font-size:13px;color:var(--secondary);font-weight:500">' + count + ' assets</div>' +
+          '</div>'
+        ).join('');
+      } catch (err) {
+        statsContainer.innerHTML = '<div class="warn">Error loading asset stats</div>';
+        typesContainer.innerHTML = '';
+        ownersContainer.innerHTML = '';
+      }
+    }
+
+    // Asset search
+    let searchTimeout;
+    document.getElementById('asset-search').addEventListener('input', function(e) {
+      clearTimeout(searchTimeout);
+      const query = e.target.value.trim();
+      if (!query) {
+        document.getElementById('bob-search-results').innerHTML = '<div class="muted">Enter a search term above</div>';
+        return;
+      }
+      searchTimeout = setTimeout(async () => {
+        const container = document.getElementById('bob-search-results');
+        container.innerHTML = '<div class="muted">Searching...</div>';
+        try {
+          const res = await fetch('/api/assets?search=' + encodeURIComponent(query) + '&limit=25');
+          if (!res.ok) throw new Error('Failed to fetch');
+          const data = await res.json();
+          if (data.data.length === 0) {
+            container.innerHTML = '<div class="muted">No assets found matching "' + query + '"</div>';
+            return;
+          }
+          container.innerHTML = '<div class="muted" style="margin-bottom:8px">' + data.total + ' assets found</div>' +
+            data.data.map(asset =>
+              '<div style="padding:12px;margin:6px 0;background:linear-gradient(rgba(255,255,255,0.05),rgba(255,255,255,0.05)),#121212;border:1px solid rgba(255,255,255,0.12);border-radius:8px">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center">' +
+              '<div style="font-weight:500;color:rgba(255,255,255,0.87)">' + (asset.deviceName || asset.model || 'Unknown Device') + '</div>' +
+              '<span style="font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(187,134,252,0.2);color:#BB86FC">' + (asset.type || 'Unknown') + '</span>' +
+              '</div>' +
+              '<div style="font-size:12px;color:rgba(255,255,255,0.6);margin-top:4px">' +
+              (asset.model ? 'Model: ' + asset.model + ' | ' : '') +
+              (asset.serial ? 'S/N: ' + asset.serial : '') +
+              '</div>' +
+              '<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:4px">' +
+              '<span style="color:var(--secondary)">' + (asset.owner || 'Unassigned') + '</span>' +
+              (asset.kit ? ' · ' + asset.kit : '') +
+              (asset.region ? ' · ' + asset.region : '') +
+              '</div></div>'
+            ).join('');
+        } catch (err) {
+          container.innerHTML = '<div class="warn">Error searching assets</div>';
+        }
+      }, 300);
+    });
   </script>
 </body>
 </html>`);
