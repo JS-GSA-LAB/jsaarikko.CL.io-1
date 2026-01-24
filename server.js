@@ -214,6 +214,41 @@ app.get("/api/organizations/:orgId/devices", async (req, res) => {
   }
 });
 
+// Meraki API: Get Device Statuses for an Organization
+app.get("/api/organizations/:orgId/devices/statuses", async (req, res) => {
+  try {
+    const statuses = await merakiFetch(`/organizations/${req.params.orgId}/devices/statuses`);
+    res.json(statuses);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Meraki API: Get Network Events
+app.get("/api/networks/:networkId/events", async (req, res) => {
+  try {
+    const { productType, includedEventTypes, startingAfter } = req.query;
+    let endpoint = `/networks/${req.params.networkId}/events?perPage=100`;
+    if (productType) endpoint += `&productType=${productType}`;
+    if (includedEventTypes) endpoint += `&includedEventTypes[]=${includedEventTypes}`;
+    if (startingAfter) endpoint += `&startingAfter=${startingAfter}`;
+    const events = await merakiFetch(endpoint);
+    res.json(events);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Meraki API: Get Device Events by Serial
+app.get("/api/devices/:serial/events", async (req, res) => {
+  try {
+    const events = await merakiFetch(`/devices/${req.params.serial}/lossAndLatencyHistory?timespan=604800&ip=8.8.8.8`);
+    res.json(events);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // XIQ API: List Devices
 app.get("/api/xiq/devices", async (req, res) => {
   try {
