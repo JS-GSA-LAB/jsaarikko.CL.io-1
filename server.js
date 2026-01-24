@@ -1223,6 +1223,19 @@ BASIC_AUTH_PASS=yourpass</pre>
         address: 'Miami, FL',
         lastUpdate: '2025-07-23 17:08:10',
         isStatic: true
+      },
+      {
+        device: 'BobKit-08-USEast-01',
+        organization: 'Extreme Networks',
+        group: 'US East',
+        model: 'PepLink Balance 20X',
+        serial: 'BOBKIT-08-001',
+        status: 'online',
+        latitude: 36.120094,
+        longitude: -86.892845,
+        address: 'Nashville, TN',
+        lastUpdate: '2025-10-01 23:45:00',
+        isStatic: true
       }
     ];
 
