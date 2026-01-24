@@ -1209,23 +1209,43 @@ BASIC_AUTH_PASS=yourpass</pre>
 
     let peplinkMap = null;
 
+    // Static locations (always shown)
+    const staticLocations = [
+      {
+        device: 'Dr_BOB',
+        organization: 'Extreme Networks',
+        group: 'Mobile Lab',
+        model: 'PepLink HD4 MBX',
+        serial: 'DR-BOB-001',
+        status: 'online',
+        latitude: 25.792326,
+        longitude: -80.14033,
+        address: 'Miami, FL',
+        lastUpdate: '2025-07-23 17:08:10',
+        isStatic: true
+      }
+    ];
+
     async function loadPeplinkLocations() {
       const summaryContainer = document.getElementById('peplink-summary-container');
       const mapContainer = document.getElementById('peplink-map');
       const locationsContainer = document.getElementById('peplink-locations-container');
 
+      let apiLocations = [];
       try {
         const res = await fetch('/api/peplink/locations');
-        if (!res.ok) throw new Error('Failed to fetch');
-        const data = await res.json();
-
-        if (data.error) {
-          summaryContainer.innerHTML = '<div class="warn">' + data.error + '</div>';
-          mapContainer.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.5)">Map unavailable</div>';
-          return;
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.error) {
+            apiLocations = data.locations || [];
+          }
         }
+      } catch (err) {
+        // API not configured, continue with static locations
+      }
 
-        const locations = data.locations || [];
+      // Combine static and API locations
+      const locations = [...staticLocations, ...apiLocations];
         const onlineCount = locations.filter(l => l.status === 'online' || l.status === 1).length;
         const withGps = locations.filter(l => l.latitude && l.longitude).length;
         const gpsLocations = locations.filter(l => l.latitude && l.longitude);
@@ -1295,6 +1315,7 @@ BASIC_AUTH_PASS=yourpass</pre>
               '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + (isOnline ? '#81C784' : '#CF6679') + ';margin-right:6px"></span>' +
               (isOnline ? 'Online' : 'Offline') + '</div>' +
               (loc.address ? '<div style="font-size:10px;color:#888;margin-top:4px">' + loc.address + '</div>' : '') +
+              (loc.lastUpdate ? '<div style="font-size:10px;color:#aaa;margin-top:4px">Updated: ' + loc.lastUpdate + '</div>' : '') +
               '</div>';
 
             marker.bindPopup(popupContent);
@@ -1332,16 +1353,12 @@ BASIC_AUTH_PASS=yourpass</pre>
                 '<div style="font-size:11px;color:var(--secondary);margin-top:4px">' +
                 '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/></svg>' +
                 loc.latitude.toFixed(4) + ', ' + loc.longitude.toFixed(4) +
-                (loc.address ? ' · ' + loc.address : '') + '</div>' :
+                (loc.address ? ' · ' + loc.address : '') +
+                (loc.lastUpdate ? ' <span style="color:rgba(255,255,255,0.4)">(' + loc.lastUpdate + ')</span>' : '') + '</div>' :
                 (loc.error ? '<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:4px">' + loc.error + '</div>' : '')) +
               '</div>';
           }).join('');
         }
-      } catch (err) {
-        summaryContainer.innerHTML = '<div class="warn">PepLink not configured</div>';
-        mapContainer.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a1a;color:rgba(255,255,255,0.5);font-size:12px">Configure PepLink to view map</div>';
-        locationsContainer.innerHTML = '<div class="muted" style="font-size:12px">Set PEPLINK_CLIENT_ID and PEPLINK_CLIENT_SECRET in Railway</div>';
-      }
     }
 
     async function loadBobStats() {
