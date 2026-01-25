@@ -2123,9 +2123,22 @@ app.get(UI_ROUTE, (_req, res) => {
       </div>
     </div>
 
-    <div style="margin:0 0 24px;padding:20px 24px;background:linear-gradient(135deg,rgba(187,134,252,0.15),rgba(3,218,197,0.15));border:1px solid rgba(187,134,252,0.3);border-radius:12px;display:flex;align-items:center;gap:16px">
-      <div style="width:48px;height:48px;background:linear-gradient(135deg,var(--primary),var(--secondary));border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.87)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>
+    <div style="margin:0 0 24px;padding:20px 24px;background:linear-gradient(135deg,rgba(108,179,63,0.15),rgba(129,199,132,0.1));border:1px solid rgba(108,179,63,0.3);border-radius:12px;display:flex;align-items:center;gap:16px">
+      <div style="width:64px;height:64px;background:linear-gradient(135deg,#9bc73a,#6cb33f);border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:8px;box-shadow:0 4px 12px rgba(108,179,63,0.3)">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 70" width="48" height="34">
+          <path fill="white" d="M50,5 C25,5 5,20 5,40 C5,55 20,65 50,65 C80,65 95,55 95,40 C95,20 75,5 50,5 Z M50,10 C72,10 90,22 90,40 C90,52 77,60 50,60 C23,60 10,52 10,40 C10,22 28,10 50,10 Z"/>
+          <g fill="#6cb33f">
+            <rect x="30" y="25" width="3" height="20" rx="1"/>
+            <rect x="36" y="20" width="3" height="25" rx="1"/>
+            <rect x="42" y="28" width="3" height="17" rx="1"/>
+            <rect x="48" y="22" width="3" height="23" rx="1"/>
+            <rect x="54" y="28" width="3" height="17" rx="1"/>
+            <rect x="60" y="20" width="3" height="25" rx="1"/>
+            <rect x="66" y="25" width="3" height="20" rx="1"/>
+          </g>
+          <text x="50" y="58" text-anchor="middle" fill="white" font-family="Arial,sans-serif" font-size="8" font-weight="bold">cisco</text>
+          <text x="50" y="68" text-anchor="middle" fill="white" font-family="Arial,sans-serif" font-size="10" font-weight="600">Meraki</text>
+        </svg>
       </div>
       <div>
         <h2 style="margin:0;font-size:1.25rem;font-weight:600;color:var(--foreground)">Meraki Dynamic Troubleshooting</h2>
