@@ -1266,6 +1266,16 @@ app.get(UI_ROUTE, (_req, res) => {
       </div>
     </div>
 
+    <div style="margin:32px 0 24px;padding:20px 24px;background:linear-gradient(135deg,rgba(3,218,197,0.15),rgba(187,134,252,0.15));border:1px solid rgba(3,218,197,0.3);border-radius:12px;display:flex;align-items:center;gap:16px">
+      <div style="width:48px;height:48px;background:linear-gradient(135deg,var(--secondary),var(--primary));border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(0,0,0,0.87)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+      </div>
+      <div>
+        <h2 style="margin:0;font-size:1.25rem;font-weight:600;color:var(--foreground)">ExtremeCloud IQ Insights</h2>
+        <div style="font-size:0.875rem;color:var(--foreground-muted);margin-top:4px">Network devices, sites, and client connectivity</div>
+      </div>
+    </div>
+
     <div class="grid-2">
       <div class="card" style="margin:0">
         <div class="section-title">
