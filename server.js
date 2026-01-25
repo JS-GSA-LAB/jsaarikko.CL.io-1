@@ -884,6 +884,17 @@ app.get(UI_ROUTE, (_req, res) => {
       </div>
     </div>
 
+    <div class="card">
+      <div class="section-title">
+        <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
+        <h2>Meraki Organizations</h2>
+      </div>
+      <div class="muted">Connected Meraki Dashboard organizations:</div>
+      <div id="orgs-container" style="margin-top:12px">
+        <div class="muted">Loading...</div>
+      </div>
+    </div>
+
     <div class="card" style="border-left:3px solid var(--warning)">
       <div class="section-title">
         <span class="icon" style="color:var(--warning)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
@@ -1281,17 +1292,6 @@ FORWARD_AUTH_HEADER=true</pre>
       <div class="muted" style="margin-top:12px">Optional authentication:</div>
       <pre>BASIC_AUTH_USER=youruser
 BASIC_AUTH_PASS=yourpass</pre>
-    </div>
-
-    <div class="card">
-      <div class="section-title">
-        <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
-        <h2>Meraki Organizations</h2>
-      </div>
-      <div class="muted">Connected Meraki Dashboard organizations:</div>
-      <div id="orgs-container" style="margin-top:12px">
-        <div class="muted">Loading...</div>
-      </div>
     </div>
 
     <div class="grid-2">
