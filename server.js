@@ -1283,25 +1283,14 @@ FORWARD_AUTH_HEADER=true</pre>
 BASIC_AUTH_PASS=yourpass</pre>
     </div>
 
-    <div class="grid-2">
-      <div class="card" style="margin:0">
-        <div class="section-title">
-          <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
-          <h2>Health Check</h2>
-        </div>
-        <div class="muted">Monitor service status:</div>
-        <pre><a href="/healthz">/healthz</a></pre>
+    <div class="card">
+      <div class="section-title">
+        <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
+        <h2>Meraki Organizations</h2>
       </div>
-
-      <div class="card" style="margin:0">
-        <div class="section-title">
-          <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
-          <h2>Meraki Organizations</h2>
-        </div>
-        <div class="muted">Connected Meraki Dashboard organizations:</div>
-        <div id="orgs-container" style="margin-top:12px">
-          <div class="muted">Loading...</div>
-        </div>
+      <div class="muted">Connected Meraki Dashboard organizations:</div>
+      <div id="orgs-container" style="margin-top:12px">
+        <div class="muted">Loading...</div>
       </div>
     </div>
 
