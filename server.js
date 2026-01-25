@@ -1709,6 +1709,298 @@ app.get("/api/roaming/analysis", async (req, res) => {
   }
 });
 
+// ===========================================
+// SWITCH PORT TELEMETRY API
+// ===========================================
+app.get("/api/switch/telemetry", async (req, res) => {
+  try {
+    const orgs = await merakiFetch("/organizations");
+    if (!orgs || orgs.length === 0) {
+      return res.status(500).json({ error: "No organizations found" });
+    }
+
+    const result = {
+      timestamp: new Date().toISOString(),
+      organizations: [],
+      switches: [],
+      portIssues: [],
+      summary: {
+        totalSwitches: 0,
+        totalPorts: 0,
+        portsWithErrors: 0,
+        portsWithCRC: 0,
+        portsWithDrops: 0,
+        poeIssues: 0,
+        negotiationIssues: 0,
+        offlineSwitches: 0
+      }
+    };
+
+    // Process each organization
+    for (const org of orgs) {
+      const orgData = {
+        id: org.id,
+        name: org.name,
+        switches: [],
+        issueCount: 0
+      };
+
+      try {
+        // Get all devices and filter for switches
+        const [devices, statuses] = await Promise.all([
+          merakiFetch(`/organizations/${org.id}/devices`),
+          merakiFetch(`/organizations/${org.id}/devices/statuses`)
+        ]);
+
+        // Create status map
+        const statusMap = {};
+        for (const s of statuses) {
+          statusMap[s.serial] = s;
+        }
+
+        // Filter for switches (MS and C9 series)
+        const switches = devices.filter(d =>
+          d.model?.startsWith('MS') || d.model?.startsWith('C9')
+        );
+
+        result.summary.totalSwitches += switches.length;
+
+        // Get port statuses for each switch
+        for (const sw of switches) {
+          const switchStatus = statusMap[sw.serial];
+          const switchData = {
+            serial: sw.serial,
+            name: sw.name || sw.serial,
+            model: sw.model,
+            network: sw.networkId,
+            status: switchStatus?.status || 'unknown',
+            lanIp: switchStatus?.lanIp || 'N/A',
+            mac: sw.mac,
+            ports: [],
+            issues: {
+              errors: 0,
+              crc: 0,
+              drops: 0,
+              poe: 0,
+              negotiation: 0
+            },
+            totalPorts: 0,
+            activePorts: 0
+          };
+
+          if (switchStatus?.status === 'offline') {
+            result.summary.offlineSwitches++;
+          }
+
+          try {
+            // Get port statuses
+            const ports = await merakiFetch(`/devices/${sw.serial}/switch/ports/statuses`);
+
+            if (ports && Array.isArray(ports)) {
+              switchData.totalPorts = ports.length;
+              result.summary.totalPorts += ports.length;
+
+              for (const port of ports) {
+                const portData = {
+                  portId: port.portId,
+                  status: port.status || 'disconnected',
+                  speed: port.speed || 'N/A',
+                  duplex: port.duplex || 'N/A',
+                  enabled: port.enabled,
+                  poeEnabled: port.poe?.isAllocated,
+                  poeClass: port.poe?.class,
+                  poePower: port.powerUsageInWh,
+                  clientCount: port.clientCount || 0,
+                  trafficInKbps: port.trafficInKbps,
+                  errors: [],
+                  warnings: []
+                };
+
+                // Check for issues
+                let hasIssue = false;
+
+                // Check for port errors
+                if (port.errors && port.errors.length > 0) {
+                  portData.errors = port.errors;
+                  switchData.issues.errors += port.errors.length;
+                  result.summary.portsWithErrors++;
+                  hasIssue = true;
+
+                  result.portIssues.push({
+                    type: 'error',
+                    severity: 'high',
+                    switch: switchData.name,
+                    switchSerial: sw.serial,
+                    port: port.portId,
+                    organization: org.name,
+                    detail: port.errors.join(', '),
+                    status: port.status
+                  });
+                }
+
+                // Check for CRC errors (in traffic stats or warnings)
+                if (port.warnings && port.warnings.some(w => w.toLowerCase().includes('crc'))) {
+                  switchData.issues.crc++;
+                  result.summary.portsWithCRC++;
+                  hasIssue = true;
+
+                  result.portIssues.push({
+                    type: 'crc',
+                    severity: 'high',
+                    switch: switchData.name,
+                    switchSerial: sw.serial,
+                    port: port.portId,
+                    organization: org.name,
+                    detail: 'CRC errors detected - possible cable or NIC issue',
+                    status: port.status
+                  });
+                }
+
+                // Check for packet drops
+                if (port.warnings && port.warnings.some(w =>
+                  w.toLowerCase().includes('drop') || w.toLowerCase().includes('discard')
+                )) {
+                  switchData.issues.drops++;
+                  result.summary.portsWithDrops++;
+                  hasIssue = true;
+
+                  result.portIssues.push({
+                    type: 'drops',
+                    severity: 'medium',
+                    switch: switchData.name,
+                    switchSerial: sw.serial,
+                    port: port.portId,
+                    organization: org.name,
+                    detail: 'Packet drops detected - check for congestion or buffer issues',
+                    status: port.status
+                  });
+                }
+
+                // Check PoE status issues
+                if (port.poe) {
+                  if (port.poe.isAllocated === false && port.status === 'Connected') {
+                    // Connected but no PoE when it might be expected
+                    portData.warnings.push('No PoE allocation');
+                  }
+                }
+
+                // Check for PoE overload or issues
+                if (port.warnings && port.warnings.some(w =>
+                  w.toLowerCase().includes('poe') || w.toLowerCase().includes('power')
+                )) {
+                  switchData.issues.poe++;
+                  result.summary.poeIssues++;
+                  hasIssue = true;
+
+                  result.portIssues.push({
+                    type: 'poe',
+                    severity: 'medium',
+                    switch: switchData.name,
+                    switchSerial: sw.serial,
+                    port: port.portId,
+                    organization: org.name,
+                    detail: 'PoE issue detected',
+                    poeClass: port.poe?.class,
+                    status: port.status
+                  });
+                }
+
+                // Check for negotiation issues (speed/duplex mismatch)
+                if (port.status === 'Connected') {
+                  switchData.activePorts++;
+
+                  // Half duplex is often a sign of negotiation issues
+                  if (port.duplex === 'half') {
+                    switchData.issues.negotiation++;
+                    result.summary.negotiationIssues++;
+                    hasIssue = true;
+
+                    result.portIssues.push({
+                      type: 'negotiation',
+                      severity: 'medium',
+                      switch: switchData.name,
+                      switchSerial: sw.serial,
+                      port: port.portId,
+                      organization: org.name,
+                      detail: `Half duplex negotiated (${port.speed}) - possible auto-negotiation failure`,
+                      speed: port.speed,
+                      duplex: port.duplex,
+                      status: port.status
+                    });
+                  }
+
+                  // 10 Mbps on a gigabit port might indicate issues
+                  if (port.speed === '10 Mbps' || port.speed === '10') {
+                    switchData.issues.negotiation++;
+                    result.summary.negotiationIssues++;
+                    hasIssue = true;
+
+                    result.portIssues.push({
+                      type: 'negotiation',
+                      severity: 'low',
+                      switch: switchData.name,
+                      switchSerial: sw.serial,
+                      port: port.portId,
+                      organization: org.name,
+                      detail: 'Port negotiated at 10 Mbps - check cable quality or device capability',
+                      speed: port.speed,
+                      duplex: port.duplex,
+                      status: port.status
+                    });
+                  }
+                }
+
+                // Check for general warnings
+                if (port.warnings && port.warnings.length > 0) {
+                  portData.warnings = portData.warnings.concat(port.warnings);
+                }
+
+                if (hasIssue || port.status === 'Connected') {
+                  switchData.ports.push(portData);
+                }
+              }
+            }
+          } catch (portErr) {
+            console.error(`Error fetching ports for ${sw.serial}:`, portErr.message);
+          }
+
+          // Calculate total issues for this switch
+          const totalIssues = Object.values(switchData.issues).reduce((a, b) => a + b, 0);
+          if (totalIssues > 0) {
+            orgData.issueCount += totalIssues;
+          }
+
+          orgData.switches.push(switchData);
+          result.switches.push(switchData);
+        }
+      } catch (orgErr) {
+        console.error(`Error processing org ${org.name}:`, orgErr.message);
+      }
+
+      result.organizations.push(orgData);
+    }
+
+    // Sort issues by severity
+    const severityOrder = { high: 0, medium: 1, low: 2 };
+    result.portIssues.sort((a, b) =>
+      (severityOrder[a.severity] || 3) - (severityOrder[b.severity] || 3)
+    );
+
+    // Sort switches by issue count
+    result.switches.sort((a, b) => {
+      const aTotal = Object.values(a.issues).reduce((x, y) => x + y, 0);
+      const bTotal = Object.values(b.issues).reduce((x, y) => x + y, 0);
+      return bTotal - aTotal;
+    });
+
+    res.json(result);
+
+  } catch (err) {
+    console.error("Switch telemetry error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // XIQ API: List Devices
 app.get("/api/xiq/devices", async (req, res) => {
   try {
@@ -2368,6 +2660,86 @@ app.get(UI_ROUTE, (_req, res) => {
           </div>
 
           <div id="roaming-insights" style="margin-top:20px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="border-left:3px solid #2196F3;background:linear-gradient(135deg,rgba(33,150,243,0.05),rgba(3,169,244,0.05))">
+      <div class="section-title">
+        <span class="icon" style="color:#2196F3"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></span>
+        <h2>Switch Port Telemetry</h2>
+        <span style="margin-left:auto;padding:4px 10px;background:linear-gradient(135deg,#2196F3,#03A9F4);border-radius:12px;font-size:10px;font-weight:600;color:rgba(255,255,255,0.95);text-transform:uppercase">All Orgs</span>
+      </div>
+      <div class="muted">Real-time port status, errors, CRC, drops, PoE, and negotiation issues across all switches</div>
+
+      <div style="margin-top:16px">
+        <button onclick="loadSwitchTelemetry()" id="switch-telemetry-button" style="padding:12px 24px;background:linear-gradient(135deg,#2196F3,#03A9F4);border:none;border-radius:8px;color:rgba(255,255,255,0.95);font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          Load Switch Telemetry
+        </button>
+      </div>
+
+      <div id="switch-telemetry-results" style="margin-top:20px;display:none">
+        <div id="switch-telemetry-loading" style="display:none;padding:40px;text-align:center">
+          <div style="width:40px;height:40px;border:3px solid rgba(33,150,243,0.3);border-top-color:#2196F3;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto"></div>
+          <div style="margin-top:12px;color:var(--foreground-muted)">Scanning all switches across organizations...</div>
+        </div>
+
+        <div id="switch-telemetry-content" style="display:none">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:20px">
+            <div style="padding:16px;background:rgba(33,150,243,0.1);border-radius:8px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:#2196F3" id="telemetry-total-switches">--</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">Switches</div>
+            </div>
+            <div style="padding:16px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:var(--foreground)" id="telemetry-total-ports">--</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">Total Ports</div>
+            </div>
+            <div style="padding:16px;background:rgba(207,102,121,0.15);border-radius:8px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:var(--destructive)" id="telemetry-errors">--</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">Errors</div>
+            </div>
+            <div style="padding:16px;background:rgba(255,152,0,0.15);border-radius:8px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:#FF9800" id="telemetry-crc">--</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">CRC</div>
+            </div>
+            <div style="padding:16px;background:rgba(156,39,176,0.15);border-radius:8px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:#9C27B0" id="telemetry-drops">--</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">Drops</div>
+            </div>
+            <div style="padding:16px;background:rgba(255,183,77,0.15);border-radius:8px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:var(--warning)" id="telemetry-poe">--</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">PoE Issues</div>
+            </div>
+            <div style="padding:16px;background:rgba(121,85,72,0.15);border-radius:8px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:#795548" id="telemetry-negotiation">--</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">Negotiation</div>
+            </div>
+            <div style="padding:16px;background:rgba(96,125,139,0.15);border-radius:8px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:#607D8B" id="telemetry-offline">--</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">Offline</div>
+            </div>
+          </div>
+
+          <div id="telemetry-issues-container" style="margin-bottom:20px">
+            <div style="font-weight:600;color:rgba(255,255,255,0.87);margin-bottom:12px;display:flex;align-items:center;gap:8px">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--destructive)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Port Issues
+            </div>
+            <div id="telemetry-issues-list" style="max-height:300px;overflow-y:auto">
+              <div class="muted">No issues detected</div>
+            </div>
+          </div>
+
+          <div id="telemetry-switches-container">
+            <div style="font-weight:600;color:rgba(255,255,255,0.87);margin-bottom:12px;display:flex;align-items:center;gap:8px">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2196F3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+              Switches by Organization
+            </div>
+            <div id="telemetry-switches-list">
+              <div class="muted">No switches found</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -3314,6 +3686,133 @@ app.get(UI_ROUTE, (_req, res) => {
       // Reset button
       button.disabled = false;
       button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/></svg> Analyze Roaming';
+    }
+
+    // Switch Port Telemetry Functions
+    async function loadSwitchTelemetry() {
+      const resultsDiv = document.getElementById('switch-telemetry-results');
+      const loadingDiv = document.getElementById('switch-telemetry-loading');
+      const contentDiv = document.getElementById('switch-telemetry-content');
+      const button = document.getElementById('switch-telemetry-button');
+
+      // Show loading state
+      resultsDiv.style.display = 'block';
+      loadingDiv.style.display = 'block';
+      contentDiv.style.display = 'none';
+      button.disabled = true;
+      button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Scanning...';
+
+      try {
+        const res = await fetch('/api/switch/telemetry');
+        const data = await res.json();
+
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        // Hide loading, show content
+        loadingDiv.style.display = 'none';
+        contentDiv.style.display = 'block';
+
+        // Update summary metrics
+        document.getElementById('telemetry-total-switches').textContent = data.summary?.totalSwitches || 0;
+        document.getElementById('telemetry-total-ports').textContent = data.summary?.totalPorts || 0;
+        document.getElementById('telemetry-errors').textContent = data.summary?.portsWithErrors || 0;
+        document.getElementById('telemetry-crc').textContent = data.summary?.portsWithCRC || 0;
+        document.getElementById('telemetry-drops').textContent = data.summary?.portsWithDrops || 0;
+        document.getElementById('telemetry-poe').textContent = data.summary?.poeIssues || 0;
+        document.getElementById('telemetry-negotiation').textContent = data.summary?.negotiationIssues || 0;
+        document.getElementById('telemetry-offline').textContent = data.summary?.offlineSwitches || 0;
+
+        // Render port issues
+        const issuesList = document.getElementById('telemetry-issues-list');
+        if (data.portIssues && data.portIssues.length > 0) {
+          issuesList.innerHTML = data.portIssues.slice(0, 20).map(issue => {
+            const typeColors = {
+              error: { bg: 'rgba(207,102,121,0.15)', border: 'var(--destructive)', icon: '⚠️' },
+              crc: { bg: 'rgba(255,152,0,0.15)', border: '#FF9800', icon: '🔄' },
+              drops: { bg: 'rgba(156,39,176,0.15)', border: '#9C27B0', icon: '📉' },
+              poe: { bg: 'rgba(255,183,77,0.15)', border: 'var(--warning)', icon: '⚡' },
+              negotiation: { bg: 'rgba(121,85,72,0.15)', border: '#795548', icon: '🔗' }
+            };
+            const colors = typeColors[issue.type] || typeColors.error;
+            const severityBadge = issue.severity === 'high' ? 'var(--destructive)' :
+                                 issue.severity === 'medium' ? 'var(--warning)' : 'var(--success)';
+
+            return '<div style="padding:10px 12px;margin:6px 0;background:' + colors.bg + ';border-left:3px solid ' + colors.border + ';border-radius:6px">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+              '<span style="font-size:13px;font-weight:500;color:rgba(255,255,255,0.87)">' + colors.icon + ' ' + issue.switch + ' - Port ' + issue.port + '</span>' +
+              '<div style="display:flex;gap:6px">' +
+              '<span style="padding:2px 6px;background:rgba(255,255,255,0.1);border-radius:4px;font-size:10px;color:rgba(255,255,255,0.6);text-transform:uppercase">' + issue.type + '</span>' +
+              '<span style="padding:2px 6px;background:' + severityBadge + ';border-radius:4px;font-size:10px;color:rgba(0,0,0,0.87);text-transform:uppercase">' + issue.severity + '</span>' +
+              '</div></div>' +
+              '<div style="font-size:12px;color:rgba(255,255,255,0.7)">' + issue.detail + '</div>' +
+              '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">Organization: ' + issue.organization + '</div>' +
+              '</div>';
+          }).join('');
+
+          if (data.portIssues.length > 20) {
+            issuesList.innerHTML += '<div style="padding:10px;text-align:center;color:rgba(255,255,255,0.5);font-size:12px">...and ' + (data.portIssues.length - 20) + ' more issues</div>';
+          }
+        } else {
+          issuesList.innerHTML = '<div style="padding:20px;text-align:center;background:rgba(129,199,132,0.1);border-radius:8px;color:var(--success)"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;vertical-align:middle"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>No port issues detected - All switches healthy!</div>';
+        }
+
+        // Render switches by organization
+        const switchesList = document.getElementById('telemetry-switches-list');
+        if (data.organizations && data.organizations.length > 0) {
+          switchesList.innerHTML = data.organizations.map(org => {
+            if (org.switches.length === 0) return '';
+
+            return '<div style="margin-bottom:16px">' +
+              '<div style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.87);margin-bottom:8px;padding:8px 12px;background:rgba(33,150,243,0.1);border-radius:6px;display:flex;justify-content:space-between;align-items:center">' +
+              '<span>' + org.name + '</span>' +
+              '<span style="font-size:11px;color:rgba(255,255,255,0.5)">' + org.switches.length + ' switch(es)' + (org.issueCount > 0 ? ' · <span style="color:var(--warning)">' + org.issueCount + ' issues</span>' : '') + '</span>' +
+              '</div>' +
+              '<div style="display:grid;gap:8px">' +
+              org.switches.map(sw => {
+                const totalIssues = Object.values(sw.issues).reduce((a, b) => a + b, 0);
+                const statusColor = sw.status === 'online' ? 'var(--success)' :
+                                   sw.status === 'alerting' ? 'var(--warning)' : 'var(--destructive)';
+
+                return '<div style="padding:10px 12px;background:linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03)),#121212;border-radius:6px;border:1px solid rgba(255,255,255,0.08)">' +
+                  '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+                  '<div style="display:flex;align-items:center;gap:8px">' +
+                  '<span style="width:8px;height:8px;border-radius:50%;background:' + statusColor + '"></span>' +
+                  '<span style="font-size:13px;font-weight:500;color:rgba(255,255,255,0.87)">' + sw.name + '</span>' +
+                  '</div>' +
+                  '<span style="font-size:11px;color:rgba(255,255,255,0.5);font-family:var(--font-mono)">' + sw.model + '</span>' +
+                  '</div>' +
+                  '<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:rgba(255,255,255,0.6)">' +
+                  '<span>Ports: <strong>' + sw.activePorts + '/' + sw.totalPorts + '</strong> active</span>' +
+                  '<span>IP: ' + sw.lanIp + '</span>' +
+                  (totalIssues > 0 ? '<span style="color:var(--warning)">Issues: ' + totalIssues + '</span>' : '<span style="color:var(--success)">No issues</span>') +
+                  '</div>' +
+                  (totalIssues > 0 ? '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">' +
+                    (sw.issues.errors > 0 ? '<span style="padding:2px 6px;background:rgba(207,102,121,0.2);border-radius:4px;font-size:10px;color:var(--destructive)">Errors: ' + sw.issues.errors + '</span>' : '') +
+                    (sw.issues.crc > 0 ? '<span style="padding:2px 6px;background:rgba(255,152,0,0.2);border-radius:4px;font-size:10px;color:#FF9800">CRC: ' + sw.issues.crc + '</span>' : '') +
+                    (sw.issues.drops > 0 ? '<span style="padding:2px 6px;background:rgba(156,39,176,0.2);border-radius:4px;font-size:10px;color:#9C27B0">Drops: ' + sw.issues.drops + '</span>' : '') +
+                    (sw.issues.poe > 0 ? '<span style="padding:2px 6px;background:rgba(255,183,77,0.2);border-radius:4px;font-size:10px;color:var(--warning)">PoE: ' + sw.issues.poe + '</span>' : '') +
+                    (sw.issues.negotiation > 0 ? '<span style="padding:2px 6px;background:rgba(121,85,72,0.2);border-radius:4px;font-size:10px;color:#795548">Negotiation: ' + sw.issues.negotiation + '</span>' : '') +
+                  '</div>' : '') +
+                  '</div>';
+              }).join('') +
+              '</div></div>';
+          }).join('');
+        } else {
+          switchesList.innerHTML = '<div class="muted" style="padding:20px;text-align:center">No switches found in any organization</div>';
+        }
+
+      } catch (err) {
+        loadingDiv.style.display = 'none';
+        contentDiv.style.display = 'block';
+        document.getElementById('telemetry-issues-list').innerHTML = '<div style="color:var(--destructive);padding:12px">Error: ' + err.message + '</div>';
+        document.getElementById('telemetry-switches-list').innerHTML = '';
+      }
+
+      // Reset button
+      button.disabled = false;
+      button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg> Load Switch Telemetry';
     }
 
     async function loadOrganizations() {
