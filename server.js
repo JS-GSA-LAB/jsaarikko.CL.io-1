@@ -1260,8 +1260,8 @@ app.get(UI_ROUTE, (_req, res) => {
         This gateway provides a stable HTTPS endpoint for your Meraki MCP server with built-in health monitoring.
       </div>
       <div class="row">
-        <span class="pill">Upstream: <b>\${UPSTREAM}</b></span>
-        <span class="pill">Route: <b>\${PROXY_ROUTE}</b></span>
+        <span class="pill">Upstream: <b>${UPSTREAM}</b></span>
+        <span class="pill">Route: <b>${PROXY_ROUTE}</b></span>
       </div>
     </div>
 
@@ -1273,10 +1273,10 @@ app.get(UI_ROUTE, (_req, res) => {
       <div class="muted">Configure your Claude or MCP client to connect to:</div>
       <pre id="clientUrl"></pre>
       <script>
-        document.getElementById("clientUrl").textContent = location.origin + "\${PROXY_ROUTE}";
+        document.getElementById("clientUrl").textContent = location.origin + "${PROXY_ROUTE}";
       </script>
       <div class="muted" style="margin-top:12px">
-        \${FORWARD_AUTH_HEADER ? "Authorization headers are forwarded to upstream." : "<span class='warn'>Authorization headers are NOT forwarded.</span>"}
+        ${FORWARD_AUTH_HEADER ? "Authorization headers are forwarded to upstream." : "<span class='warn'>Authorization headers are NOT forwarded.</span>"}
       </div>
     </div>
 
@@ -1286,9 +1286,9 @@ app.get(UI_ROUTE, (_req, res) => {
         <h2>Configuration</h2>
       </div>
       <div class="muted">Railway environment variables:</div>
-      <pre>UPSTREAM_MCP_URL=\${UPSTREAM || "http://YOUR_MERAKI_MCP_SERVER:PORT"}
-PROXY_ROUTE=/mcp
-FORWARD_AUTH_HEADER=true</pre>
+      <pre>UPSTREAM_MCP_URL=${UPSTREAM || "http://YOUR_MERAKI_MCP_SERVER:PORT"}
+PROXY_ROUTE=${PROXY_ROUTE}
+FORWARD_AUTH_HEADER=${FORWARD_AUTH_HEADER}</pre>
       <div class="muted" style="margin-top:12px">Optional authentication:</div>
       <pre>BASIC_AUTH_USER=youruser
 BASIC_AUTH_PASS=yourpass</pre>
