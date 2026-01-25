@@ -2124,20 +2124,10 @@ app.get(UI_ROUTE, (_req, res) => {
     </div>
 
     <div style="margin:0 0 24px;padding:20px 24px;background:linear-gradient(135deg,rgba(108,179,63,0.15),rgba(129,199,132,0.1));border:1px solid rgba(108,179,63,0.3);border-radius:12px;display:flex;align-items:center;gap:16px">
-      <div style="width:64px;height:64px;background:linear-gradient(135deg,#9bc73a,#6cb33f);border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:8px;box-shadow:0 4px 12px rgba(108,179,63,0.3)">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 70" width="48" height="34">
-          <path fill="white" d="M50,5 C25,5 5,20 5,40 C5,55 20,65 50,65 C80,65 95,55 95,40 C95,20 75,5 50,5 Z M50,10 C72,10 90,22 90,40 C90,52 77,60 50,60 C23,60 10,52 10,40 C10,22 28,10 50,10 Z"/>
-          <g fill="#6cb33f">
-            <rect x="30" y="25" width="3" height="20" rx="1"/>
-            <rect x="36" y="20" width="3" height="25" rx="1"/>
-            <rect x="42" y="28" width="3" height="17" rx="1"/>
-            <rect x="48" y="22" width="3" height="23" rx="1"/>
-            <rect x="54" y="28" width="3" height="17" rx="1"/>
-            <rect x="60" y="20" width="3" height="25" rx="1"/>
-            <rect x="66" y="25" width="3" height="20" rx="1"/>
-          </g>
-          <text x="50" y="58" text-anchor="middle" fill="white" font-family="Arial,sans-serif" font-size="8" font-weight="bold">cisco</text>
-          <text x="50" y="68" text-anchor="middle" fill="white" font-family="Arial,sans-serif" font-size="10" font-weight="600">Meraki</text>
+      <div style="flex-shrink:0">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 56" width="64" height="45">
+          <path fill="#9dbe40" d="M40,4 C23,4 16,12 14,18 C6,20 0,28 0,36 C0,46 8,52 18,52 L62,52 C72,52 80,46 80,36 C80,28 74,20 66,18 C64,12 57,4 40,4 Z"/>
+          <text x="40" y="38" text-anchor="middle" fill="white" font-family="Arial,sans-serif" font-size="28" font-weight="bold">M</text>
         </svg>
       </div>
       <div>
