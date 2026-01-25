@@ -2438,6 +2438,23 @@ app.get(UI_ROUTE, (_req, res) => {
       </div>
     </div>
 
+    <div style="margin:24px 0;padding:20px 24px;background:linear-gradient(135deg,rgba(255,152,0,0.15),rgba(121,85,72,0.15));border:1px solid rgba(255,152,0,0.3);border-radius:12px;display:flex;align-items:center;gap:16px">
+      <div style="flex-shrink:0">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 56" width="64" height="45">
+          <rect x="5" y="10" width="70" height="36" rx="4" fill="#FF9800"/>
+          <rect x="12" y="18" width="24" height="20" rx="2" fill="white" opacity="0.9"/>
+          <rect x="44" y="18" width="24" height="8" rx="2" fill="white" opacity="0.9"/>
+          <rect x="44" y="30" width="24" height="8" rx="2" fill="white" opacity="0.9"/>
+          <circle cx="24" cy="28" r="6" fill="#FF9800"/>
+          <path d="M22 28 L24 30 L28 25" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <h2 style="margin:0;font-size:1.25rem;font-weight:600;color:var(--foreground)">BOB and PepLink Tracker</h2>
+        <div style="font-size:0.875rem;color:var(--foreground-muted);margin-top:4px">SE equipment inventory and SD-WAN device locations</div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="section-title">
         <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></span>
