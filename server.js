@@ -2001,6 +2001,300 @@ app.get("/api/switch/telemetry", async (req, res) => {
   }
 });
 
+// ===========================================
+// EVENT LOG STREAMING API
+// ===========================================
+app.get("/api/events/stream", async (req, res) => {
+  try {
+    const orgs = await merakiFetch("/organizations");
+    if (!orgs || orgs.length === 0) {
+      return res.status(500).json({ error: "No organizations found" });
+    }
+
+    const orgId = orgs[0].id;
+    const timespan = parseInt(req.query.timespan) || 86400; // Default 24 hours
+    const siteFilter = req.query.site || null; // Optional site filter
+
+    const result = {
+      timestamp: new Date().toISOString(),
+      timespan: timespan,
+      sites: [],
+      events: {
+        dhcp: [],
+        dns: [],
+        auth: [],
+        portFlap: [],
+        vpn: [],
+        rf: []
+      },
+      incidents: [],
+      summary: {
+        totalEvents: 0,
+        dhcpFailures: 0,
+        dnsFailures: 0,
+        authFailures: 0,
+        portFlaps: 0,
+        vpnDisconnects: 0,
+        rfEvents: 0,
+        incidentCount: 0
+      },
+      timeline: []
+    };
+
+    // Get networks
+    const networks = await merakiFetch(`/organizations/${orgId}/networks`);
+
+    // Event type patterns for categorization
+    const eventPatterns = {
+      dhcp: ['dhcp', 'ip_conflict', 'dhcp_no_lease', 'dhcp_decline'],
+      dns: ['dns', 'name_resolution', 'dns_failure'],
+      auth: ['auth', '802.1x', 'wpa_auth', 'wpa_deauth', 'radius', 'authentication', 'failed_auth', 'eap'],
+      portFlap: ['port_status', 'port_connected', 'port_disconnected', 'link_up', 'link_down', 'port_flap'],
+      vpn: ['vpn', 'tunnel', 'ipsec', 'site_to_site', 'client_vpn', 'anyconnect', 'vpn_disconnect', 'vpn_connect'],
+      rf: ['dfs', 'channel', 'interference', 'rf', 'radar', 'rogue', 'air_marshal']
+    };
+
+    // Process each network
+    for (const network of networks) {
+      const siteData = {
+        id: network.id,
+        name: network.name,
+        productTypes: network.productTypes || [],
+        eventCounts: {
+          dhcp: 0, dns: 0, auth: 0, portFlap: 0, vpn: 0, rf: 0
+        },
+        events: []
+      };
+
+      // Skip if filtering by site and this isn't the one
+      if (siteFilter && network.id !== siteFilter && network.name !== siteFilter) {
+        result.sites.push({ id: network.id, name: network.name, eventCounts: siteData.eventCounts });
+        continue;
+      }
+
+      try {
+        // Fetch events for this network
+        const eventsData = await merakiFetch(`/networks/${network.id}/events?perPage=1000&timespan=${timespan}`);
+        const events = eventsData.events || [];
+
+        for (const event of events) {
+          const eventType = (event.type || '').toLowerCase();
+          const eventDesc = (event.description || '').toLowerCase();
+          const combined = eventType + ' ' + eventDesc;
+
+          let category = null;
+          let severity = 'info';
+
+          // Categorize event
+          for (const [cat, patterns] of Object.entries(eventPatterns)) {
+            if (patterns.some(p => combined.includes(p))) {
+              category = cat;
+              break;
+            }
+          }
+
+          if (!category) continue; // Skip uncategorized events
+
+          // Determine severity based on event type
+          if (combined.includes('fail') || combined.includes('error') || combined.includes('denied') || combined.includes('reject')) {
+            severity = 'high';
+          } else if (combined.includes('disconnect') || combined.includes('down') || combined.includes('deauth')) {
+            severity = 'medium';
+          } else if (combined.includes('warning') || combined.includes('flap')) {
+            severity = 'medium';
+          }
+
+          const eventRecord = {
+            id: event.eventId || `${network.id}-${event.occurredAt}`,
+            timestamp: event.occurredAt,
+            type: event.type,
+            category: category,
+            severity: severity,
+            description: event.description,
+            site: network.name,
+            siteId: network.id,
+            device: event.deviceName || event.deviceSerial || 'Unknown',
+            deviceSerial: event.deviceSerial,
+            client: event.clientMac || event.clientId,
+            clientDescription: event.clientDescription,
+            ssid: event.ssidName || event.ssidNumber,
+            details: event
+          };
+
+          // Add to category
+          result.events[category].push(eventRecord);
+          siteData.eventCounts[category]++;
+          siteData.events.push(eventRecord);
+
+          // Update summary
+          result.summary.totalEvents++;
+          if (category === 'dhcp') result.summary.dhcpFailures++;
+          if (category === 'dns') result.summary.dnsFailures++;
+          if (category === 'auth') result.summary.authFailures++;
+          if (category === 'portFlap') result.summary.portFlaps++;
+          if (category === 'vpn') result.summary.vpnDisconnects++;
+          if (category === 'rf') result.summary.rfEvents++;
+
+          // Add to timeline
+          result.timeline.push(eventRecord);
+        }
+      } catch (netErr) {
+        console.error(`Error fetching events for ${network.name}:`, netErr.message);
+      }
+
+      result.sites.push(siteData);
+    }
+
+    // Sort timeline by timestamp (newest first)
+    result.timeline.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    // ===========================================
+    // INCIDENT TIMELINE RECONSTRUCTION
+    // ===========================================
+    // Group related events into incidents based on time proximity and correlation
+
+    const incidentWindow = 300000; // 5 minutes window for related events
+    const processedEvents = new Set();
+
+    for (const event of result.timeline) {
+      if (processedEvents.has(event.id)) continue;
+
+      const incident = {
+        id: `INC-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        startTime: event.timestamp,
+        endTime: event.timestamp,
+        duration: 0,
+        severity: event.severity,
+        primaryCategory: event.category,
+        site: event.site,
+        siteId: event.siteId,
+        affectedDevices: new Set([event.device]),
+        affectedClients: new Set(),
+        events: [event],
+        rootCause: null,
+        impact: [],
+        status: 'detected'
+      };
+
+      if (event.client) {
+        incident.affectedClients.add(event.client);
+      }
+
+      processedEvents.add(event.id);
+      const eventTime = new Date(event.timestamp).getTime();
+
+      // Find related events within the time window
+      for (const relatedEvent of result.timeline) {
+        if (processedEvents.has(relatedEvent.id)) continue;
+        if (relatedEvent.siteId !== event.siteId) continue;
+
+        const relatedTime = new Date(relatedEvent.timestamp).getTime();
+        const timeDiff = Math.abs(relatedTime - eventTime);
+
+        if (timeDiff <= incidentWindow) {
+          // Check for correlation
+          const isRelated =
+            relatedEvent.device === event.device ||
+            relatedEvent.client === event.client ||
+            (relatedEvent.category === event.category);
+
+          if (isRelated) {
+            incident.events.push(relatedEvent);
+            incident.affectedDevices.add(relatedEvent.device);
+            if (relatedEvent.client) {
+              incident.affectedClients.add(relatedEvent.client);
+            }
+            processedEvents.add(relatedEvent.id);
+
+            // Update incident time range
+            if (new Date(relatedEvent.timestamp) < new Date(incident.startTime)) {
+              incident.startTime = relatedEvent.timestamp;
+            }
+            if (new Date(relatedEvent.timestamp) > new Date(incident.endTime)) {
+              incident.endTime = relatedEvent.timestamp;
+            }
+
+            // Escalate severity if needed
+            if (relatedEvent.severity === 'high') {
+              incident.severity = 'high';
+            } else if (relatedEvent.severity === 'medium' && incident.severity !== 'high') {
+              incident.severity = 'medium';
+            }
+          }
+        }
+      }
+
+      // Only create incidents for multiple events or high severity
+      if (incident.events.length >= 2 || incident.severity === 'high') {
+        // Calculate duration
+        incident.duration = new Date(incident.endTime) - new Date(incident.startTime);
+
+        // Convert sets to arrays
+        incident.affectedDevices = [...incident.affectedDevices];
+        incident.affectedClients = [...incident.affectedClients];
+
+        // Sort events by time
+        incident.events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        // Determine root cause analysis
+        const categories = incident.events.map(e => e.category);
+        const categoryCount = {};
+        categories.forEach(c => categoryCount[c] = (categoryCount[c] || 0) + 1);
+
+        // Root cause inference
+        if (categoryCount.auth > 0 && categoryCount.dhcp > 0) {
+          incident.rootCause = 'Authentication issues may be preventing DHCP lease acquisition';
+          incident.impact.push('Clients unable to obtain IP addresses');
+        } else if (categoryCount.portFlap > 0 && (categoryCount.auth > 0 || categoryCount.dhcp > 0)) {
+          incident.rootCause = 'Port instability causing network connectivity issues';
+          incident.impact.push('Intermittent connectivity for connected devices');
+        } else if (categoryCount.vpn > 0) {
+          incident.rootCause = 'VPN tunnel instability or configuration issue';
+          incident.impact.push('Site-to-site connectivity disrupted');
+        } else if (categoryCount.rf > 0 && categoryCount.auth > 0) {
+          incident.rootCause = 'RF interference causing wireless client disconnections';
+          incident.impact.push('Wireless clients experiencing connectivity issues');
+        } else if (categoryCount.rf > 0) {
+          incident.rootCause = 'RF environment changes detected';
+          incident.impact.push('Potential wireless performance degradation');
+        } else if (categoryCount.auth > 0) {
+          incident.rootCause = 'Authentication service issue or misconfiguration';
+          incident.impact.push('Users unable to connect to network');
+        } else if (categoryCount.dhcp > 0) {
+          incident.rootCause = 'DHCP service issue or IP exhaustion';
+          incident.impact.push('New devices unable to join network');
+        } else if (categoryCount.portFlap > 0) {
+          incident.rootCause = 'Physical layer issue (cable, port, or connected device)';
+          incident.impact.push('Connected devices experiencing drops');
+        }
+
+        // Determine status
+        const lastEventTime = new Date(incident.endTime).getTime();
+        const now = Date.now();
+        if (now - lastEventTime > 1800000) { // 30 minutes
+          incident.status = 'resolved';
+        } else if (now - lastEventTime > 300000) { // 5 minutes
+          incident.status = 'monitoring';
+        } else {
+          incident.status = 'active';
+        }
+
+        result.incidents.push(incident);
+      }
+    }
+
+    // Sort incidents by start time (newest first)
+    result.incidents.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+    result.summary.incidentCount = result.incidents.length;
+
+    res.json(result);
+
+  } catch (err) {
+    console.error("Event streaming error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // XIQ API: List Devices
 app.get("/api/xiq/devices", async (req, res) => {
   try {
@@ -2738,6 +3032,106 @@ app.get(UI_ROUTE, (_req, res) => {
             </div>
             <div id="telemetry-switches-list">
               <div class="muted">No switches found</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="border-left:3px solid #E91E63;background:linear-gradient(135deg,rgba(233,30,99,0.05),rgba(156,39,176,0.05))">
+      <div class="section-title">
+        <span class="icon" style="color:#E91E63"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
+        <h2>Event Log Streaming</h2>
+        <span style="margin-left:auto;padding:4px 10px;background:linear-gradient(135deg,#E91E63,#9C27B0);border-radius:12px;font-size:10px;font-weight:600;color:rgba(255,255,255,0.95);text-transform:uppercase">Live</span>
+      </div>
+      <div class="muted">DHCP, DNS, Auth failures, Port flaps, VPN disconnects, and RF events with incident reconstruction</div>
+
+      <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <button onclick="loadEventStream()" id="event-stream-button" style="padding:12px 24px;background:linear-gradient(135deg,#E91E63,#9C27B0);border:none;border-radius:8px;color:rgba(255,255,255,0.95);font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Stream Events
+        </button>
+        <select id="event-site-filter" onchange="filterEventsBySite()" style="padding:8px 12px;background:#1e1e1e;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:rgba(255,255,255,0.87);font-family:var(--font-sans);font-size:13px">
+          <option value="">All Sites (Combined View)</option>
+        </select>
+        <div id="event-timespan-selector" style="display:flex;gap:4px">
+          <button onclick="setEventTimespan(3600)" data-timespan="3600" style="padding:4px 12px;font-size:11px;border:1px solid rgba(255,255,255,0.12);border-radius:6px;background:transparent;color:rgba(255,255,255,0.6);cursor:pointer;font-family:var(--font-sans)">1 Hour</button>
+          <button onclick="setEventTimespan(86400)" data-timespan="86400" style="padding:4px 12px;font-size:11px;border:1px solid rgba(255,255,255,0.2);border-radius:6px;background:rgba(233,30,99,0.2);color:#E91E63;cursor:pointer;font-family:var(--font-sans)">24 Hours</button>
+          <button onclick="setEventTimespan(604800)" data-timespan="604800" style="padding:4px 12px;font-size:11px;border:1px solid rgba(255,255,255,0.12);border-radius:6px;background:transparent;color:rgba(255,255,255,0.6);cursor:pointer;font-family:var(--font-sans)">7 Days</button>
+        </div>
+      </div>
+
+      <div id="event-stream-results" style="margin-top:20px;display:none">
+        <div id="event-stream-loading" style="display:none;padding:40px;text-align:center">
+          <div style="width:40px;height:40px;border:3px solid rgba(233,30,99,0.3);border-top-color:#E91E63;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto"></div>
+          <div style="margin-top:12px;color:var(--foreground-muted)">Streaming events from all sites...</div>
+        </div>
+
+        <div id="event-stream-content" style="display:none">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:20px">
+            <div style="padding:12px;background:rgba(233,30,99,0.1);border-radius:8px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:#E91E63" id="event-total">--</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px">Total Events</div>
+            </div>
+            <div style="padding:12px;background:rgba(255,152,0,0.15);border-radius:8px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:#FF9800" id="event-dhcp">--</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px">DHCP</div>
+            </div>
+            <div style="padding:12px;background:rgba(0,188,212,0.15);border-radius:8px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:#00BCD4" id="event-dns">--</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px">DNS</div>
+            </div>
+            <div style="padding:12px;background:rgba(207,102,121,0.15);border-radius:8px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:var(--destructive)" id="event-auth">--</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px">Auth</div>
+            </div>
+            <div style="padding:12px;background:rgba(121,85,72,0.15);border-radius:8px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:#795548" id="event-portflap">--</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px">Port Flaps</div>
+            </div>
+            <div style="padding:12px;background:rgba(103,58,183,0.15);border-radius:8px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:#673AB7" id="event-vpn">--</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px">VPN</div>
+            </div>
+            <div style="padding:12px;background:rgba(76,175,80,0.15);border-radius:8px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:#4CAF50" id="event-rf">--</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px">RF Events</div>
+            </div>
+            <div style="padding:12px;background:rgba(156,39,176,0.15);border-radius:8px;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:#9C27B0" id="event-incidents">--</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px">Incidents</div>
+            </div>
+          </div>
+
+          <div id="event-incidents-container" style="margin-bottom:20px">
+            <div style="font-weight:600;color:rgba(255,255,255,0.87);margin-bottom:12px;display:flex;align-items:center;gap:8px">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9C27B0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Incident Timeline Reconstruction
+            </div>
+            <div id="event-incidents-list" style="max-height:350px;overflow-y:auto">
+              <div class="muted">No incidents detected</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">
+            <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:16px">
+              <div style="font-weight:600;color:rgba(255,255,255,0.87);margin-bottom:12px;display:flex;align-items:center;gap:8px">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E91E63" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Recent Events
+              </div>
+              <div id="event-timeline-list" style="max-height:300px;overflow-y:auto">
+                <div class="muted">No events</div>
+              </div>
+            </div>
+
+            <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:16px">
+              <div style="font-weight:600;color:rgba(255,255,255,0.87);margin-bottom:12px;display:flex;align-items:center;gap:8px">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4CAF50" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                Events by Site
+              </div>
+              <div id="event-sites-list" style="max-height:300px;overflow-y:auto">
+                <div class="muted">No sites</div>
+              </div>
             </div>
           </div>
         </div>
@@ -3813,6 +4207,218 @@ app.get(UI_ROUTE, (_req, res) => {
       // Reset button
       button.disabled = false;
       button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg> Load Switch Telemetry';
+    }
+
+    // Event Log Streaming Functions
+    let eventTimespan = 86400; // Default 24 hours
+    let eventStreamData = null;
+
+    function setEventTimespan(seconds) {
+      eventTimespan = seconds;
+      const buttons = document.querySelectorAll('#event-timespan-selector button');
+      buttons.forEach(btn => {
+        if (parseInt(btn.dataset.timespan) === seconds) {
+          btn.style.background = 'rgba(233,30,99,0.2)';
+          btn.style.borderColor = 'rgba(255,255,255,0.2)';
+          btn.style.color = '#E91E63';
+        } else {
+          btn.style.background = 'transparent';
+          btn.style.borderColor = 'rgba(255,255,255,0.12)';
+          btn.style.color = 'rgba(255,255,255,0.6)';
+        }
+      });
+    }
+
+    function filterEventsBySite() {
+      if (!eventStreamData) return;
+      const siteFilter = document.getElementById('event-site-filter').value;
+      renderEventStreamData(eventStreamData, siteFilter);
+    }
+
+    async function loadEventStream() {
+      const resultsDiv = document.getElementById('event-stream-results');
+      const loadingDiv = document.getElementById('event-stream-loading');
+      const contentDiv = document.getElementById('event-stream-content');
+      const button = document.getElementById('event-stream-button');
+
+      // Show loading state
+      resultsDiv.style.display = 'block';
+      loadingDiv.style.display = 'block';
+      contentDiv.style.display = 'none';
+      button.disabled = true;
+      button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Streaming...';
+
+      try {
+        const res = await fetch('/api/events/stream?timespan=' + eventTimespan);
+        const data = await res.json();
+
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        eventStreamData = data;
+
+        // Populate site filter dropdown
+        const siteSelect = document.getElementById('event-site-filter');
+        siteSelect.innerHTML = '<option value="">All Sites (Combined View)</option>' +
+          data.sites.filter(s => s.name).map(s =>
+            '<option value="' + s.id + '">' + s.name + '</option>'
+          ).join('');
+
+        // Hide loading, show content
+        loadingDiv.style.display = 'none';
+        contentDiv.style.display = 'block';
+
+        renderEventStreamData(data, '');
+
+      } catch (err) {
+        loadingDiv.style.display = 'none';
+        contentDiv.style.display = 'block';
+        document.getElementById('event-incidents-list').innerHTML = '<div style="color:var(--destructive);padding:12px">Error: ' + err.message + '</div>';
+      }
+
+      // Reset button
+      button.disabled = false;
+      button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Stream Events';
+    }
+
+    function renderEventStreamData(data, siteFilter) {
+      // Filter data if site selected
+      let filteredTimeline = data.timeline;
+      let filteredIncidents = data.incidents;
+      let summary = { ...data.summary };
+
+      if (siteFilter) {
+        filteredTimeline = data.timeline.filter(e => e.siteId === siteFilter);
+        filteredIncidents = data.incidents.filter(i => i.siteId === siteFilter);
+
+        // Recalculate summary for filtered site
+        summary = {
+          totalEvents: filteredTimeline.length,
+          dhcpFailures: filteredTimeline.filter(e => e.category === 'dhcp').length,
+          dnsFailures: filteredTimeline.filter(e => e.category === 'dns').length,
+          authFailures: filteredTimeline.filter(e => e.category === 'auth').length,
+          portFlaps: filteredTimeline.filter(e => e.category === 'portFlap').length,
+          vpnDisconnects: filteredTimeline.filter(e => e.category === 'vpn').length,
+          rfEvents: filteredTimeline.filter(e => e.category === 'rf').length,
+          incidentCount: filteredIncidents.length
+        };
+      }
+
+      // Update summary metrics
+      document.getElementById('event-total').textContent = summary.totalEvents || 0;
+      document.getElementById('event-dhcp').textContent = summary.dhcpFailures || 0;
+      document.getElementById('event-dns').textContent = summary.dnsFailures || 0;
+      document.getElementById('event-auth').textContent = summary.authFailures || 0;
+      document.getElementById('event-portflap').textContent = summary.portFlaps || 0;
+      document.getElementById('event-vpn').textContent = summary.vpnDisconnects || 0;
+      document.getElementById('event-rf').textContent = summary.rfEvents || 0;
+      document.getElementById('event-incidents').textContent = summary.incidentCount || 0;
+
+      // Render incidents
+      const incidentsList = document.getElementById('event-incidents-list');
+      if (filteredIncidents && filteredIncidents.length > 0) {
+        incidentsList.innerHTML = filteredIncidents.map(incident => {
+          const statusColors = {
+            active: { bg: 'rgba(207,102,121,0.2)', border: 'var(--destructive)', text: 'var(--destructive)', label: 'ACTIVE' },
+            monitoring: { bg: 'rgba(255,183,77,0.2)', border: 'var(--warning)', text: 'var(--warning)', label: 'MONITORING' },
+            resolved: { bg: 'rgba(129,199,132,0.2)', border: 'var(--success)', text: 'var(--success)', label: 'RESOLVED' }
+          };
+          const statusStyle = statusColors[incident.status] || statusColors.active;
+          const severityColors = { high: 'var(--destructive)', medium: 'var(--warning)', low: 'var(--success)' };
+          const duration = incident.duration > 60000 ? Math.round(incident.duration / 60000) + ' min' : Math.round(incident.duration / 1000) + ' sec';
+
+          return '<div style="padding:12px;margin:8px 0;background:' + statusStyle.bg + ';border-left:3px solid ' + statusStyle.border + ';border-radius:6px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+            '<div style="display:flex;align-items:center;gap:8px">' +
+            '<span style="font-size:11px;padding:2px 8px;background:' + statusStyle.border + ';border-radius:4px;color:rgba(0,0,0,0.87);font-weight:600">' + statusStyle.label + '</span>' +
+            '<span style="font-weight:600;color:rgba(255,255,255,0.87)">' + incident.site + '</span>' +
+            '</div>' +
+            '<span style="font-size:11px;color:rgba(255,255,255,0.5)">' + new Date(incident.startTime).toLocaleString() + '</span>' +
+            '</div>' +
+            '<div style="font-size:13px;color:rgba(255,255,255,0.7);margin-bottom:8px">' +
+            '<strong style="color:' + severityColors[incident.severity] + '">Root Cause:</strong> ' + (incident.rootCause || 'Under investigation') +
+            '</div>' +
+            (incident.impact && incident.impact.length > 0 ? '<div style="font-size:12px;color:rgba(255,255,255,0.6);margin-bottom:8px"><strong>Impact:</strong> ' + incident.impact.join(', ') + '</div>' : '') +
+            '<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:rgba(255,255,255,0.5)">' +
+            '<span>Events: <strong>' + incident.events.length + '</strong></span>' +
+            '<span>Duration: <strong>' + duration + '</strong></span>' +
+            '<span>Devices: <strong>' + incident.affectedDevices.length + '</strong></span>' +
+            '<span>Clients: <strong>' + incident.affectedClients.length + '</strong></span>' +
+            '</div>' +
+            '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.1)">' +
+            '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:6px">Event Timeline:</div>' +
+            '<div style="display:flex;flex-wrap:wrap;gap:4px">' +
+            incident.events.slice(0, 8).map(e => {
+              const catColors = { dhcp: '#FF9800', dns: '#00BCD4', auth: 'var(--destructive)', portFlap: '#795548', vpn: '#673AB7', rf: '#4CAF50' };
+              return '<span style="padding:2px 6px;background:rgba(255,255,255,0.1);border-left:2px solid ' + (catColors[e.category] || '#999') + ';border-radius:2px;font-size:10px;color:rgba(255,255,255,0.7)">' + e.type + '</span>';
+            }).join('') +
+            (incident.events.length > 8 ? '<span style="padding:2px 6px;font-size:10px;color:rgba(255,255,255,0.5)">+' + (incident.events.length - 8) + ' more</span>' : '') +
+            '</div></div></div>';
+        }).join('');
+      } else {
+        incidentsList.innerHTML = '<div style="padding:20px;text-align:center;background:rgba(129,199,132,0.1);border-radius:8px;color:var(--success)"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;vertical-align:middle"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>No incidents detected - Network operating normally</div>';
+      }
+
+      // Render recent events timeline
+      const timelineList = document.getElementById('event-timeline-list');
+      if (filteredTimeline && filteredTimeline.length > 0) {
+        timelineList.innerHTML = filteredTimeline.slice(0, 25).map(event => {
+          const catColors = { dhcp: '#FF9800', dns: '#00BCD4', auth: 'var(--destructive)', portFlap: '#795548', vpn: '#673AB7', rf: '#4CAF50' };
+          const sevColors = { high: 'var(--destructive)', medium: 'var(--warning)', info: 'rgba(255,255,255,0.5)' };
+
+          return '<div style="padding:8px 10px;margin:4px 0;background:linear-gradient(rgba(255,255,255,0.02),rgba(255,255,255,0.02)),#121212;border-left:3px solid ' + (catColors[event.category] || '#666') + ';border-radius:4px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+            '<span style="font-size:11px;font-weight:500;color:rgba(255,255,255,0.87)">' + event.type + '</span>' +
+            '<span style="font-size:10px;color:' + (sevColors[event.severity] || sevColors.info) + ';text-transform:uppercase">' + event.severity + '</span>' +
+            '</div>' +
+            '<div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:2px">' + (event.description || '').substring(0, 80) + '</div>' +
+            '<div style="display:flex;justify-content:space-between;font-size:10px;color:rgba(255,255,255,0.4)">' +
+            '<span>' + event.site + ' · ' + event.device + '</span>' +
+            '<span>' + new Date(event.timestamp).toLocaleTimeString() + '</span>' +
+            '</div></div>';
+        }).join('');
+
+        if (filteredTimeline.length > 25) {
+          timelineList.innerHTML += '<div style="padding:8px;text-align:center;color:rgba(255,255,255,0.4);font-size:11px">...and ' + (filteredTimeline.length - 25) + ' more events</div>';
+        }
+      } else {
+        timelineList.innerHTML = '<div class="muted" style="padding:20px;text-align:center">No events in selected timeframe</div>';
+      }
+
+      // Render events by site
+      const sitesList = document.getElementById('event-sites-list');
+      const sitesWithEvents = data.sites.filter(s => {
+        const total = Object.values(s.eventCounts).reduce((a, b) => a + b, 0);
+        return total > 0;
+      }).sort((a, b) => {
+        const aTotal = Object.values(a.eventCounts).reduce((x, y) => x + y, 0);
+        const bTotal = Object.values(b.eventCounts).reduce((x, y) => x + y, 0);
+        return bTotal - aTotal;
+      });
+
+      if (sitesWithEvents.length > 0) {
+        sitesList.innerHTML = sitesWithEvents.map(site => {
+          const total = Object.values(site.eventCounts).reduce((a, b) => a + b, 0);
+          const isSelected = siteFilter === site.id;
+
+          return '<div style="padding:10px 12px;margin:4px 0;background:' + (isSelected ? 'rgba(233,30,99,0.15)' : 'linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03)),#121212') + ';border-radius:6px;cursor:pointer" onclick="document.getElementById(\'event-site-filter\').value=\'' + site.id + '\';filterEventsBySite()">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+            '<span style="font-size:13px;font-weight:500;color:rgba(255,255,255,0.87)">' + site.name + '</span>' +
+            '<span style="padding:2px 8px;background:rgba(233,30,99,0.2);border-radius:10px;font-size:11px;color:#E91E63;font-weight:600">' + total + '</span>' +
+            '</div>' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+            (site.eventCounts.dhcp > 0 ? '<span style="padding:1px 5px;background:rgba(255,152,0,0.2);border-radius:3px;font-size:9px;color:#FF9800">DHCP:' + site.eventCounts.dhcp + '</span>' : '') +
+            (site.eventCounts.dns > 0 ? '<span style="padding:1px 5px;background:rgba(0,188,212,0.2);border-radius:3px;font-size:9px;color:#00BCD4">DNS:' + site.eventCounts.dns + '</span>' : '') +
+            (site.eventCounts.auth > 0 ? '<span style="padding:1px 5px;background:rgba(207,102,121,0.2);border-radius:3px;font-size:9px;color:var(--destructive)">Auth:' + site.eventCounts.auth + '</span>' : '') +
+            (site.eventCounts.portFlap > 0 ? '<span style="padding:1px 5px;background:rgba(121,85,72,0.2);border-radius:3px;font-size:9px;color:#795548">Flap:' + site.eventCounts.portFlap + '</span>' : '') +
+            (site.eventCounts.vpn > 0 ? '<span style="padding:1px 5px;background:rgba(103,58,183,0.2);border-radius:3px;font-size:9px;color:#673AB7">VPN:' + site.eventCounts.vpn + '</span>' : '') +
+            (site.eventCounts.rf > 0 ? '<span style="padding:1px 5px;background:rgba(76,175,80,0.2);border-radius:3px;font-size:9px;color:#4CAF50">RF:' + site.eventCounts.rf + '</span>' : '') +
+            '</div></div>';
+        }).join('');
+      } else {
+        sitesList.innerHTML = '<div class="muted" style="padding:20px;text-align:center">No events from any site</div>';
+      }
     }
 
     async function loadOrganizations() {
