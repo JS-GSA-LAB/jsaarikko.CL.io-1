@@ -1285,6 +1285,430 @@ app.get("/api/predictive/analyze", async (req, res) => {
   }
 });
 
+// ===========================================
+// ROAMING PATH TRACKING API
+// ===========================================
+app.get("/api/roaming/analysis", async (req, res) => {
+  try {
+    const orgs = await merakiFetch("/organizations");
+    if (!orgs || orgs.length === 0) {
+      return res.status(500).json({ error: "No organizations found" });
+    }
+
+    const orgId = orgs[0].id;
+    const timespan = parseInt(req.query.timespan) || 86400; // Default 24 hours
+
+    const result = {
+      timestamp: new Date().toISOString(),
+      timespan: timespan,
+      clientMovements: [],
+      roamingFailures: [],
+      stickyClients: [],
+      apTransitions: {},
+      optimization: {
+        score: 0,
+        recommendations: [],
+        insights: []
+      },
+      metrics: {}
+    };
+
+    // Get networks and devices
+    const [networks, devices] = await Promise.all([
+      merakiFetch(`/organizations/${orgId}/networks`),
+      merakiFetch(`/organizations/${orgId}/devices`)
+    ]);
+
+    const wirelessNetworks = networks.filter(n => n.productTypes?.includes('wireless'));
+    const accessPoints = devices.filter(d => d.model?.startsWith('MR') || d.model?.startsWith('CW'));
+
+    result.metrics.totalNetworks = wirelessNetworks.length;
+    result.metrics.totalAPs = accessPoints.length;
+
+    // Build AP name map for easier lookup
+    const apMap = {};
+    for (const ap of accessPoints) {
+      apMap[ap.serial] = ap.name || ap.serial;
+      apMap[ap.mac?.toLowerCase()] = ap.name || ap.serial;
+    }
+
+    // Collect roaming events from all wireless networks
+    let allRoamingEvents = [];
+    let allClients = [];
+    let clientConnectionHistory = {};
+
+    for (const network of wirelessNetworks) {
+      try {
+        // Get wireless events for roaming analysis
+        const events = await merakiFetch(`/networks/${network.id}/events?productType=wireless&perPage=1000&timespan=${timespan}`);
+        const wirelessEvents = events.events || [];
+
+        // Get network clients
+        const clients = await merakiFetch(`/networks/${network.id}/clients?timespan=${timespan}`);
+        allClients = allClients.concat(clients.map(c => ({ ...c, network: network.name, networkId: network.id })));
+
+        // Filter for roaming-related events
+        const roamingTypes = [
+          'association', 'disassociation', 'reassociation',
+          '802.11_auth', '802.11_deauth', 'wpa_auth', 'wpa_deauth',
+          'client_connected', 'client_disconnected'
+        ];
+
+        for (const event of wirelessEvents) {
+          const eventType = event.type?.toLowerCase() || '';
+          if (roamingTypes.some(t => eventType.includes(t))) {
+            allRoamingEvents.push({
+              ...event,
+              network: network.name,
+              networkId: network.id
+            });
+          }
+
+          // Track client connection history for path analysis
+          if (event.clientMac) {
+            const mac = event.clientMac.toLowerCase();
+            if (!clientConnectionHistory[mac]) {
+              clientConnectionHistory[mac] = [];
+            }
+            clientConnectionHistory[mac].push({
+              timestamp: event.occurredAt,
+              type: event.type,
+              ap: event.deviceSerial || event.deviceName,
+              apName: apMap[event.deviceSerial] || event.deviceName || 'Unknown',
+              network: network.name,
+              ssid: event.ssidName || event.ssid,
+              rssi: event.rssi,
+              channel: event.channel
+            });
+          }
+        }
+      } catch (err) {
+        console.error(`Error fetching data for network ${network.name}:`, err.message);
+      }
+    }
+
+    result.metrics.totalEvents = allRoamingEvents.length;
+    result.metrics.totalClients = allClients.length;
+    result.metrics.uniqueClients = Object.keys(clientConnectionHistory).length;
+
+    // ===========================================
+    // 1. CLIENT MOVEMENT TRACKING
+    // ===========================================
+    const clientMovements = [];
+    const apTransitionCounts = {};
+
+    for (const [clientMac, history] of Object.entries(clientConnectionHistory)) {
+      // Sort by timestamp
+      history.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+      // Find the client info
+      const clientInfo = allClients.find(c => c.mac?.toLowerCase() === clientMac);
+
+      if (history.length >= 2) {
+        const movements = [];
+        let lastAp = null;
+        let roamCount = 0;
+        let failedRoams = 0;
+
+        for (let i = 0; i < history.length; i++) {
+          const event = history[i];
+          const isConnect = event.type?.toLowerCase().includes('association') ||
+                           event.type?.toLowerCase().includes('connected') ||
+                           event.type?.toLowerCase().includes('auth');
+
+          if (isConnect && event.ap) {
+            if (lastAp && lastAp !== event.ap) {
+              roamCount++;
+              const transitionKey = `${apMap[lastAp] || lastAp} → ${event.apName}`;
+
+              movements.push({
+                from: apMap[lastAp] || lastAp,
+                to: event.apName,
+                timestamp: event.timestamp,
+                rssi: event.rssi,
+                channel: event.channel
+              });
+
+              // Track AP transition frequency
+              if (!apTransitionCounts[transitionKey]) {
+                apTransitionCounts[transitionKey] = 0;
+              }
+              apTransitionCounts[transitionKey]++;
+            }
+            lastAp = event.ap;
+          }
+
+          // Detect failed roams (deauth followed by auth failure or timeout)
+          if (event.type?.toLowerCase().includes('deauth') || event.type?.toLowerCase().includes('disassociation')) {
+            const nextEvent = history[i + 1];
+            if (nextEvent) {
+              const timeDiff = new Date(nextEvent.timestamp) - new Date(event.timestamp);
+              // If reconnection takes more than 5 seconds, consider it a failed/slow roam
+              if (timeDiff > 5000) {
+                failedRoams++;
+              }
+            }
+          }
+        }
+
+        if (movements.length > 0) {
+          clientMovements.push({
+            clientMac: clientMac,
+            clientName: clientInfo?.description || clientInfo?.dhcpHostname || 'Unknown',
+            manufacturer: clientInfo?.manufacturer || 'Unknown',
+            os: clientInfo?.os || 'Unknown',
+            totalRoams: roamCount,
+            failedRoams: failedRoams,
+            movements: movements.slice(-10), // Last 10 movements
+            firstSeen: history[0].timestamp,
+            lastSeen: history[history.length - 1].timestamp,
+            uniqueAPs: [...new Set(history.filter(h => h.ap).map(h => h.apName))].length
+          });
+        }
+      }
+    }
+
+    // Sort by roam count (most active roamers first)
+    clientMovements.sort((a, b) => b.totalRoams - a.totalRoams);
+    result.clientMovements = clientMovements.slice(0, 50); // Top 50 roaming clients
+    result.apTransitions = apTransitionCounts;
+
+    // ===========================================
+    // 2. ROAMING FAILURES ANALYSIS
+    // ===========================================
+    const failurePatterns = {};
+
+    for (const client of clientMovements) {
+      if (client.failedRoams > 0) {
+        result.roamingFailures.push({
+          clientMac: client.clientMac,
+          clientName: client.clientName,
+          manufacturer: client.manufacturer,
+          failureCount: client.failedRoams,
+          totalRoams: client.totalRoams,
+          failureRate: Math.round((client.failedRoams / Math.max(client.totalRoams, 1)) * 100),
+          recentMovements: client.movements.slice(-5)
+        });
+
+        // Track failure patterns by manufacturer/OS
+        const key = client.manufacturer || 'Unknown';
+        if (!failurePatterns[key]) {
+          failurePatterns[key] = { count: 0, failures: 0 };
+        }
+        failurePatterns[key].count++;
+        failurePatterns[key].failures += client.failedRoams;
+      }
+    }
+
+    result.roamingFailures.sort((a, b) => b.failureCount - a.failureCount);
+    result.metrics.totalFailures = result.roamingFailures.reduce((sum, f) => sum + f.failureCount, 0);
+    result.metrics.clientsWithFailures = result.roamingFailures.length;
+
+    // ===========================================
+    // 3. STICKY CLIENT DETECTION
+    // ===========================================
+    // Sticky clients: Clients that stay connected to one AP despite better options
+    // Indicators: Low RSSI but not roaming, connected to distant AP
+
+    for (const client of allClients) {
+      const mac = client.mac?.toLowerCase();
+      const history = clientConnectionHistory[mac];
+
+      if (!history || history.length === 0) continue;
+
+      // Get the most recent RSSI readings
+      const recentEvents = history.slice(-20);
+      const rssiValues = recentEvents.filter(e => e.rssi).map(e => e.rssi);
+
+      if (rssiValues.length > 0) {
+        const avgRssi = rssiValues.reduce((a, b) => a + b, 0) / rssiValues.length;
+        const uniqueAPs = [...new Set(recentEvents.filter(e => e.ap).map(e => e.ap))];
+
+        // Sticky client indicators:
+        // 1. Average RSSI below -70 dBm (weak signal)
+        // 2. Connected to only 1 AP over extended period
+        // 3. Not roaming despite poor signal
+        if (avgRssi < -70 && uniqueAPs.length === 1) {
+          const stickiness = Math.abs(avgRssi + 50); // Higher = stickier
+
+          result.stickyClients.push({
+            clientMac: mac,
+            clientName: client.description || client.dhcpHostname || 'Unknown',
+            manufacturer: client.manufacturer || 'Unknown',
+            os: client.os || 'Unknown',
+            currentAP: apMap[uniqueAPs[0]] || uniqueAPs[0],
+            avgRssi: Math.round(avgRssi),
+            minRssi: Math.min(...rssiValues),
+            maxRssi: Math.max(...rssiValues),
+            stickinessScore: Math.round(stickiness),
+            status: client.status,
+            ssid: client.ssid,
+            connectionDuration: client.lastSeen ?
+              Math.round((new Date() - new Date(client.firstSeen)) / 60000) + ' min' : 'Unknown',
+            recommendation: avgRssi < -80 ?
+              'Critical: Client should roam to a closer AP' :
+              'Monitor: Client may benefit from roaming'
+          });
+        }
+      }
+    }
+
+    result.stickyClients.sort((a, b) => b.stickinessScore - a.stickinessScore);
+    result.metrics.stickyClients = result.stickyClients.length;
+
+    // ===========================================
+    // 4. AI-DRIVEN ROAMING OPTIMIZATION
+    // ===========================================
+    let optimizationScore = 100;
+    const recommendations = [];
+    const insights = [];
+
+    // Analyze roaming health
+    const totalRoams = clientMovements.reduce((sum, c) => sum + c.totalRoams, 0);
+    const totalFailedRoams = clientMovements.reduce((sum, c) => sum + c.failedRoams, 0);
+    const overallFailureRate = totalRoams > 0 ? (totalFailedRoams / totalRoams) * 100 : 0;
+
+    // Score deductions based on issues
+    if (overallFailureRate > 10) {
+      optimizationScore -= 30;
+      recommendations.push({
+        priority: 'critical',
+        title: 'High Roaming Failure Rate',
+        issue: `${overallFailureRate.toFixed(1)}% of roaming attempts are failing`,
+        action: 'Review 802.11r (Fast BSS Transition) and 802.11k (Neighbor Reports) settings. Ensure all APs have consistent security settings.',
+        impact: 'Failed roams cause disconnections and poor user experience'
+      });
+    } else if (overallFailureRate > 5) {
+      optimizationScore -= 15;
+      recommendations.push({
+        priority: 'high',
+        title: 'Elevated Roaming Failures',
+        issue: `${overallFailureRate.toFixed(1)}% roaming failure rate detected`,
+        action: 'Enable 802.11v (BSS Transition Management) to help clients make better roaming decisions.',
+        impact: 'Users may experience brief disconnections during movement'
+      });
+    }
+
+    // Sticky client analysis
+    if (result.stickyClients.length > 5) {
+      optimizationScore -= 20;
+      recommendations.push({
+        priority: 'high',
+        title: 'Multiple Sticky Clients Detected',
+        issue: `${result.stickyClients.length} clients are not roaming despite poor signal`,
+        action: 'Configure minimum RSSI thresholds on APs to encourage clients to roam. Consider enabling Band Steering.',
+        impact: 'Sticky clients experience poor performance and may impact other users'
+      });
+    } else if (result.stickyClients.length > 0) {
+      optimizationScore -= 5;
+      recommendations.push({
+        priority: 'medium',
+        title: 'Sticky Clients Present',
+        issue: `${result.stickyClients.length} client(s) showing sticky behavior`,
+        action: 'Monitor these clients and consider client-side troubleshooting if issues persist.',
+        impact: 'Minor performance impact for affected clients'
+      });
+    }
+
+    // AP transition pattern analysis
+    const transitionEntries = Object.entries(apTransitionCounts);
+    if (transitionEntries.length > 0) {
+      const topTransitions = transitionEntries.sort((a, b) => b[1] - a[1]).slice(0, 5);
+      const avgTransitions = transitionEntries.reduce((sum, [, count]) => sum + count, 0) / transitionEntries.length;
+
+      // Check for ping-pong roaming (clients bouncing between same APs)
+      const pingPongPairs = [];
+      for (const [transition, count] of transitionEntries) {
+        const [from, to] = transition.split(' → ');
+        const reverseKey = `${to} → ${from}`;
+        const reverseCount = apTransitionCounts[reverseKey] || 0;
+
+        if (count > 3 && reverseCount > 3 && !pingPongPairs.some(p => p.includes(from) && p.includes(to))) {
+          pingPongPairs.push([from, to, count + reverseCount]);
+        }
+      }
+
+      if (pingPongPairs.length > 0) {
+        optimizationScore -= 15;
+        recommendations.push({
+          priority: 'high',
+          title: 'Ping-Pong Roaming Detected',
+          issue: `${pingPongPairs.length} AP pair(s) showing excessive back-and-forth roaming`,
+          action: 'Adjust AP power levels to reduce coverage overlap. Review AP placement and consider adjusting roaming thresholds.',
+          impact: 'Clients waste battery and experience micro-disconnections',
+          details: pingPongPairs.slice(0, 3).map(([a, b, c]) => `${a} ↔ ${b}: ${c} transitions`)
+        });
+      }
+
+      insights.push({
+        type: 'traffic_flow',
+        title: 'Top Roaming Paths',
+        data: topTransitions.map(([path, count]) => ({ path, count }))
+      });
+    }
+
+    // Manufacturer-specific issues
+    for (const [manufacturer, data] of Object.entries(failurePatterns)) {
+      const failureRate = (data.failures / Math.max(data.count, 1)) * 100;
+      if (failureRate > 20 && data.count >= 3) {
+        insights.push({
+          type: 'device_issue',
+          title: `${manufacturer} Devices Roaming Poorly`,
+          detail: `${data.count} ${manufacturer} device(s) with ${failureRate.toFixed(0)}% failure rate`,
+          recommendation: 'These devices may have known roaming issues. Consider firmware updates or driver updates.'
+        });
+      }
+    }
+
+    // Coverage analysis
+    const avgUniqueAPs = clientMovements.length > 0 ?
+      clientMovements.reduce((sum, c) => sum + c.uniqueAPs, 0) / clientMovements.length : 0;
+
+    if (avgUniqueAPs > 5) {
+      insights.push({
+        type: 'coverage',
+        title: 'High Client Mobility',
+        detail: `Clients visit an average of ${avgUniqueAPs.toFixed(1)} APs`,
+        recommendation: 'Network has good coverage for mobile users. Ensure fast roaming protocols are enabled.'
+      });
+    }
+
+    // Add positive insights if doing well
+    if (overallFailureRate < 2 && result.stickyClients.length === 0) {
+      insights.push({
+        type: 'success',
+        title: 'Excellent Roaming Performance',
+        detail: 'Network roaming is well optimized with minimal failures and no sticky clients'
+      });
+    }
+
+    // Ensure score doesn't go below 0
+    optimizationScore = Math.max(0, optimizationScore);
+
+    result.optimization = {
+      score: optimizationScore,
+      grade: optimizationScore >= 90 ? 'A' : optimizationScore >= 80 ? 'B' : optimizationScore >= 70 ? 'C' : optimizationScore >= 60 ? 'D' : 'F',
+      recommendations: recommendations,
+      insights: insights,
+      summary: optimizationScore >= 80 ?
+        'Network roaming is performing well. Minor optimizations may further improve client experience.' :
+        optimizationScore >= 60 ?
+        'Network roaming has some issues that should be addressed to improve client experience.' :
+        'Network roaming needs significant attention. Multiple issues are impacting client connectivity.'
+    };
+
+    result.metrics.optimizationScore = optimizationScore;
+    result.metrics.totalRoams = totalRoams;
+    result.metrics.failureRate = overallFailureRate.toFixed(1) + '%';
+
+    res.json(result);
+
+  } catch (err) {
+    console.error("Roaming analysis error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // XIQ API: List Devices
 app.get("/api/xiq/devices", async (req, res) => {
   try {
@@ -1831,6 +2255,116 @@ app.get(UI_ROUTE, (_req, res) => {
 
           <div id="predictive-metrics" style="display:flex;gap:12px;flex-wrap:wrap">
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="border-left:3px solid #00BCD4;background:linear-gradient(135deg,rgba(0,188,212,0.05),rgba(0,150,136,0.05))">
+      <div class="section-title">
+        <span class="icon" style="color:#00BCD4"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg></span>
+        <h2>Roaming Path Tracking</h2>
+        <span style="margin-left:auto;padding:4px 10px;background:linear-gradient(135deg,#00BCD4,#009688);border-radius:12px;font-size:10px;font-weight:600;color:rgba(0,0,0,0.87);text-transform:uppercase">AI-Optimized</span>
+      </div>
+      <div class="muted">Track client movement, detect roaming failures, and identify sticky clients</div>
+
+      <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <button onclick="runRoamingAnalysis()" id="roaming-button" style="padding:12px 24px;background:linear-gradient(135deg,#00BCD4,#009688);border:none;border-radius:8px;color:rgba(0,0,0,0.87);font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/></svg>
+          Analyze Roaming
+        </button>
+        <div id="roaming-timespan-selector" style="display:flex;gap:4px">
+          <button onclick="setRoamingTimespan(3600)" data-timespan="3600" style="padding:4px 12px;font-size:11px;border:1px solid rgba(255,255,255,0.12);border-radius:6px;background:transparent;color:rgba(255,255,255,0.6);cursor:pointer;font-family:var(--font-sans)">1 Hour</button>
+          <button onclick="setRoamingTimespan(86400)" data-timespan="86400" style="padding:4px 12px;font-size:11px;border:1px solid rgba(255,255,255,0.2);border-radius:6px;background:rgba(0,188,212,0.2);color:#00BCD4;cursor:pointer;font-family:var(--font-sans)">24 Hours</button>
+          <button onclick="setRoamingTimespan(604800)" data-timespan="604800" style="padding:4px 12px;font-size:11px;border:1px solid rgba(255,255,255,0.12);border-radius:6px;background:transparent;color:rgba(255,255,255,0.6);cursor:pointer;font-family:var(--font-sans)">7 Days</button>
+        </div>
+      </div>
+
+      <div id="roaming-results" style="margin-top:20px;display:none">
+        <div id="roaming-loading" style="display:none;padding:40px;text-align:center">
+          <div style="width:40px;height:40px;border:3px solid rgba(0,188,212,0.3);border-top-color:#00BCD4;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto"></div>
+          <div style="margin-top:12px;color:var(--foreground-muted)">Analyzing client roaming patterns...</div>
+        </div>
+
+        <div id="roaming-content" style="display:none">
+          <div id="roaming-optimization" style="padding:20px;border-radius:12px;margin-bottom:20px;background:linear-gradient(135deg,rgba(0,188,212,0.2),rgba(0,150,136,0.1))">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px">
+              <div>
+                <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,0.6);margin-bottom:4px">Optimization Score</div>
+                <div style="display:flex;align-items:baseline;gap:8px">
+                  <span id="roaming-score" style="font-size:48px;font-weight:700;color:#00BCD4">--</span>
+                  <span id="roaming-grade" style="font-size:24px;font-weight:600;padding:4px 12px;background:rgba(0,188,212,0.3);border-radius:8px">-</span>
+                </div>
+              </div>
+              <div id="roaming-summary" style="flex:1;min-width:200px;max-width:400px;font-size:14px;color:rgba(255,255,255,0.7);padding-left:20px;border-left:2px solid rgba(255,255,255,0.1)">
+                --
+              </div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
+            <div style="padding:16px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:#00BCD4" id="roaming-metric-clients">--</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">Roaming Clients</div>
+            </div>
+            <div style="padding:16px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:var(--success)" id="roaming-metric-roams">--</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">Total Roams</div>
+            </div>
+            <div style="padding:16px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:var(--destructive)" id="roaming-metric-failures">--</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">Failures</div>
+            </div>
+            <div style="padding:16px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:var(--warning)" id="roaming-metric-sticky">--</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">Sticky Clients</div>
+            </div>
+          </div>
+
+          <div id="roaming-recommendations" style="margin-bottom:20px"></div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:16px">
+            <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:16px">
+              <div style="font-weight:600;color:rgba(255,255,255,0.87);margin-bottom:12px;display:flex;align-items:center;gap:8px">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00BCD4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Top Roaming Clients
+              </div>
+              <div id="roaming-clients-list" style="max-height:250px;overflow-y:auto">
+                <div class="muted">No data</div>
+              </div>
+            </div>
+
+            <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:16px">
+              <div style="font-weight:600;color:rgba(255,255,255,0.87);margin-bottom:12px;display:flex;align-items:center;gap:8px">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--destructive)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                Roaming Failures
+              </div>
+              <div id="roaming-failures-list" style="max-height:250px;overflow-y:auto">
+                <div class="muted">No failures detected</div>
+              </div>
+            </div>
+
+            <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:16px">
+              <div style="font-weight:600;color:rgba(255,255,255,0.87);margin-bottom:12px;display:flex;align-items:center;gap:8px">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                Sticky Clients
+              </div>
+              <div id="roaming-sticky-list" style="max-height:250px;overflow-y:auto">
+                <div class="muted">No sticky clients detected</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="roaming-transitions" style="margin-top:20px;background:rgba(255,255,255,0.03);border-radius:8px;padding:16px">
+            <div style="font-weight:600;color:rgba(255,255,255,0.87);margin-bottom:12px;display:flex;align-items:center;gap:8px">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              Top AP Transitions
+            </div>
+            <div id="roaming-transitions-list" style="display:flex;flex-wrap:wrap;gap:8px">
+              <div class="muted">No data</div>
+            </div>
+          </div>
+
+          <div id="roaming-insights" style="margin-top:20px"></div>
         </div>
       </div>
     </div>
@@ -2564,6 +3098,202 @@ app.get(UI_ROUTE, (_req, res) => {
       // Reset button
       button.disabled = false;
       button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> Run Predictive Analysis';
+    }
+
+    // Roaming Path Tracking Functions
+    let roamingTimespan = 86400; // Default 24 hours
+
+    function setRoamingTimespan(seconds) {
+      roamingTimespan = seconds;
+      const buttons = document.querySelectorAll('#roaming-timespan-selector button');
+      buttons.forEach(btn => {
+        if (parseInt(btn.dataset.timespan) === seconds) {
+          btn.style.background = 'rgba(0,188,212,0.2)';
+          btn.style.borderColor = 'rgba(255,255,255,0.2)';
+          btn.style.color = '#00BCD4';
+        } else {
+          btn.style.background = 'transparent';
+          btn.style.borderColor = 'rgba(255,255,255,0.12)';
+          btn.style.color = 'rgba(255,255,255,0.6)';
+        }
+      });
+    }
+
+    async function runRoamingAnalysis() {
+      const resultsDiv = document.getElementById('roaming-results');
+      const loadingDiv = document.getElementById('roaming-loading');
+      const contentDiv = document.getElementById('roaming-content');
+      const button = document.getElementById('roaming-button');
+
+      // Show loading state
+      resultsDiv.style.display = 'block';
+      loadingDiv.style.display = 'block';
+      contentDiv.style.display = 'none';
+      button.disabled = true;
+      button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Analyzing...';
+
+      try {
+        const res = await fetch('/api/roaming/analysis?timespan=' + roamingTimespan);
+        const data = await res.json();
+
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        // Hide loading, show content
+        loadingDiv.style.display = 'none';
+        contentDiv.style.display = 'block';
+
+        // Update optimization score
+        const score = data.optimization?.score || 0;
+        const grade = data.optimization?.grade || '-';
+        document.getElementById('roaming-score').textContent = score;
+        document.getElementById('roaming-score').style.color = score >= 80 ? 'var(--success)' : score >= 60 ? 'var(--warning)' : 'var(--destructive)';
+        document.getElementById('roaming-grade').textContent = grade;
+        document.getElementById('roaming-grade').style.background = score >= 80 ? 'rgba(129,199,132,0.3)' : score >= 60 ? 'rgba(255,183,77,0.3)' : 'rgba(207,102,121,0.3)';
+        document.getElementById('roaming-summary').textContent = data.optimization?.summary || '';
+
+        // Update metrics
+        document.getElementById('roaming-metric-clients').textContent = data.clientMovements?.length || 0;
+        document.getElementById('roaming-metric-roams').textContent = data.metrics?.totalRoams || 0;
+        document.getElementById('roaming-metric-failures').textContent = data.metrics?.totalFailures || 0;
+        document.getElementById('roaming-metric-sticky').textContent = data.stickyClients?.length || 0;
+
+        // Render recommendations
+        const recsDiv = document.getElementById('roaming-recommendations');
+        const recs = data.optimization?.recommendations || [];
+        if (recs.length > 0) {
+          recsDiv.innerHTML = '<div style="font-weight:600;color:rgba(255,255,255,0.87);margin-bottom:12px">AI Recommendations</div>' +
+            recs.map(r => {
+              const priorityColors = {
+                critical: { bg: 'rgba(207,102,121,0.15)', border: 'var(--destructive)', text: 'var(--destructive)' },
+                high: { bg: 'rgba(255,183,77,0.15)', border: 'var(--warning)', text: 'var(--warning)' },
+                medium: { bg: 'rgba(187,134,252,0.15)', border: 'var(--primary)', text: 'var(--primary)' },
+                low: { bg: 'rgba(129,199,132,0.15)', border: 'var(--success)', text: 'var(--success)' }
+              };
+              const colors = priorityColors[r.priority] || priorityColors.medium;
+              return '<div style="padding:12px;background:' + colors.bg + ';border-left:3px solid ' + colors.border + ';border-radius:6px;margin-bottom:8px">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+                '<span style="font-weight:600;color:' + colors.text + '">' + r.title + '</span>' +
+                '<span style="padding:2px 8px;background:' + colors.border + ';border-radius:10px;font-size:10px;color:rgba(0,0,0,0.87);text-transform:uppercase">' + r.priority + '</span>' +
+                '</div>' +
+                '<div style="font-size:13px;color:rgba(255,255,255,0.7);margin-bottom:6px">' + (r.issue || '') + '</div>' +
+                '<div style="font-size:12px;color:rgba(255,255,255,0.6);padding:8px;background:rgba(0,0,0,0.2);border-radius:4px"><strong>Action:</strong> ' + (r.action || '') + '</div>' +
+                (r.details ? '<div style="margin-top:8px;font-size:11px;color:rgba(255,255,255,0.5)">' + r.details.join(' | ') + '</div>' : '') +
+                '</div>';
+            }).join('');
+        } else {
+          recsDiv.innerHTML = '';
+        }
+
+        // Render top roaming clients
+        const clientsList = document.getElementById('roaming-clients-list');
+        if (data.clientMovements && data.clientMovements.length > 0) {
+          clientsList.innerHTML = data.clientMovements.slice(0, 10).map(c =>
+            '<div style="padding:8px 10px;margin:4px 0;background:linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03)),#121212;border-radius:6px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center">' +
+            '<span style="font-size:12px;color:rgba(255,255,255,0.87)">' + (c.clientName || 'Unknown') + '</span>' +
+            '<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:#00BCD4;color:#000">' + c.totalRoams + ' roams</span>' +
+            '</div>' +
+            '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;font-family:var(--font-mono)">' + c.clientMac + '</div>' +
+            '<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px">' + (c.manufacturer || '') + ' · ' + c.uniqueAPs + ' APs visited</div>' +
+            '</div>'
+          ).join('');
+        } else {
+          clientsList.innerHTML = '<div class="muted" style="padding:12px;text-align:center">No roaming activity detected</div>';
+        }
+
+        // Render roaming failures
+        const failuresList = document.getElementById('roaming-failures-list');
+        if (data.roamingFailures && data.roamingFailures.length > 0) {
+          failuresList.innerHTML = data.roamingFailures.slice(0, 10).map(f =>
+            '<div style="padding:8px 10px;margin:4px 0;background:linear-gradient(rgba(207,102,121,0.1),rgba(207,102,121,0.05)),#121212;border-radius:6px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center">' +
+            '<span style="font-size:12px;color:rgba(255,255,255,0.87)">' + (f.clientName || 'Unknown') + '</span>' +
+            '<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:var(--destructive);color:#000">' + f.failureCount + ' fails</span>' +
+            '</div>' +
+            '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;font-family:var(--font-mono)">' + f.clientMac + '</div>' +
+            '<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px">' + (f.manufacturer || '') + ' · ' + f.failureRate + '% failure rate</div>' +
+            '</div>'
+          ).join('');
+        } else {
+          failuresList.innerHTML = '<div style="padding:12px;text-align:center;color:var(--success)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;vertical-align:middle"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>No roaming failures</div>';
+        }
+
+        // Render sticky clients
+        const stickyList = document.getElementById('roaming-sticky-list');
+        if (data.stickyClients && data.stickyClients.length > 0) {
+          stickyList.innerHTML = data.stickyClients.slice(0, 10).map(s =>
+            '<div style="padding:8px 10px;margin:4px 0;background:linear-gradient(rgba(255,183,77,0.1),rgba(255,183,77,0.05)),#121212;border-radius:6px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center">' +
+            '<span style="font-size:12px;color:rgba(255,255,255,0.87)">' + (s.clientName || 'Unknown') + '</span>' +
+            '<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:var(--warning);color:#000">' + s.avgRssi + ' dBm</span>' +
+            '</div>' +
+            '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;font-family:var(--font-mono)">' + s.clientMac + '</div>' +
+            '<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px">Stuck on: ' + (s.currentAP || 'Unknown') + '</div>' +
+            '<div style="font-size:10px;color:var(--warning);margin-top:4px">' + (s.recommendation || '') + '</div>' +
+            '</div>'
+          ).join('');
+        } else {
+          stickyList.innerHTML = '<div style="padding:12px;text-align:center;color:var(--success)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;vertical-align:middle"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>No sticky clients</div>';
+        }
+
+        // Render AP transitions
+        const transitionsList = document.getElementById('roaming-transitions-list');
+        const transitions = Object.entries(data.apTransitions || {}).sort((a, b) => b[1] - a[1]).slice(0, 10);
+        if (transitions.length > 0) {
+          transitionsList.innerHTML = transitions.map(([path, count]) =>
+            '<div style="padding:8px 12px;background:rgba(187,134,252,0.1);border-radius:6px;font-size:12px;display:flex;align-items:center;gap:8px">' +
+            '<span style="color:rgba(255,255,255,0.7)">' + path + '</span>' +
+            '<span style="padding:2px 6px;background:var(--primary);border-radius:4px;color:#000;font-weight:600;font-size:10px">' + count + '</span>' +
+            '</div>'
+          ).join('');
+        } else {
+          transitionsList.innerHTML = '<div class="muted">No transition data</div>';
+        }
+
+        // Render insights
+        const insightsDiv = document.getElementById('roaming-insights');
+        const insights = data.optimization?.insights || [];
+        if (insights.length > 0) {
+          insightsDiv.innerHTML = '<div style="font-weight:600;color:rgba(255,255,255,0.87);margin-bottom:12px">AI Insights</div>' +
+            '<div style="display:grid;gap:8px">' +
+            insights.map(i => {
+              const typeIcons = {
+                success: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+                traffic_flow: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+                device_issue: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+                coverage: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00BCD4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>'
+              };
+              return '<div style="padding:10px 12px;background:rgba(255,255,255,0.03);border-radius:6px;display:flex;gap:10px;align-items:flex-start">' +
+                '<div style="flex-shrink:0;margin-top:2px">' + (typeIcons[i.type] || typeIcons.coverage) + '</div>' +
+                '<div>' +
+                '<div style="font-size:13px;font-weight:500;color:rgba(255,255,255,0.87)">' + (i.title || '') + '</div>' +
+                (i.detail ? '<div style="font-size:12px;color:rgba(255,255,255,0.6);margin-top:2px">' + i.detail + '</div>' : '') +
+                (i.recommendation ? '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px;font-style:italic">' + i.recommendation + '</div>' : '') +
+                (i.data ? '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">' + i.data.map(d => d.path + ': ' + d.count).join(' | ') + '</div>' : '') +
+                '</div></div>';
+            }).join('') +
+            '</div>';
+        } else {
+          insightsDiv.innerHTML = '';
+        }
+
+      } catch (err) {
+        loadingDiv.style.display = 'none';
+        contentDiv.style.display = 'block';
+        document.getElementById('roaming-optimization').innerHTML = '<div style="color:var(--destructive)">Error: ' + err.message + '</div>';
+        document.getElementById('roaming-recommendations').innerHTML = '';
+        document.getElementById('roaming-clients-list').innerHTML = '';
+        document.getElementById('roaming-failures-list').innerHTML = '';
+        document.getElementById('roaming-sticky-list').innerHTML = '';
+        document.getElementById('roaming-transitions-list').innerHTML = '';
+        document.getElementById('roaming-insights').innerHTML = '';
+      }
+
+      // Reset button
+      button.disabled = false;
+      button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/></svg> Analyze Roaming';
     }
 
     async function loadOrganizations() {
