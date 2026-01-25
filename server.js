@@ -2420,7 +2420,7 @@ app.get(UI_ROUTE, (_req, res) => {
         loadingDiv.style.display = 'none';
         contentDiv.style.display = 'block';
 
-        // Update overall risk level
+        // Update overall risk level (API uses riskLevel)
         const riskDiv = document.getElementById('predictive-risk');
         const riskColors = {
           critical: { bg: 'linear-gradient(135deg,rgba(207,102,121,0.3),rgba(207,102,121,0.1))', text: 'var(--destructive)' },
@@ -2428,13 +2428,13 @@ app.get(UI_ROUTE, (_req, res) => {
           medium: { bg: 'linear-gradient(135deg,rgba(187,134,252,0.3),rgba(187,134,252,0.1))', text: 'var(--primary)' },
           low: { bg: 'linear-gradient(135deg,rgba(129,199,132,0.3),rgba(129,199,132,0.1))', text: 'var(--success)' }
         };
-        const riskStyle = riskColors[data.overallRisk] || riskColors.low;
+        const riskStyle = riskColors[data.riskLevel] || riskColors.low;
         riskDiv.style.background = riskStyle.bg;
-        document.getElementById('predictive-risk-level').textContent = data.overallRisk.toUpperCase();
+        document.getElementById('predictive-risk-level').textContent = (data.riskLevel || 'low').toUpperCase();
         document.getElementById('predictive-risk-level').style.color = riskStyle.text;
-        document.getElementById('predictive-risk-score').textContent = 'Risk Score: ' + data.riskScore + '/100';
+        document.getElementById('predictive-risk-score').textContent = 'Risk Score: ' + (data.riskScore || 0) + '/100';
 
-        // Update category cards
+        // Update category cards based on predictions
         const categoryStyles = {
           critical: { border: 'var(--destructive)', text: 'At Risk' },
           high: { border: 'var(--warning)', text: 'Warning' },
@@ -2442,33 +2442,39 @@ app.get(UI_ROUTE, (_req, res) => {
           low: { border: 'var(--success)', text: 'Healthy' }
         };
 
+        // Extract category status from predictions
+        const uplinkPred = data.predictions?.find(p => p.category === 'uplink_degradation');
+        const rfPred = data.predictions?.find(p => p.category === 'rf_congestion');
+        const poePred = data.predictions?.find(p => p.category === 'poe_degradation');
+        const hwPred = data.predictions?.find(p => p.category === 'hardware_aging');
+
         // Uplink
         const uplinkCard = document.querySelector('[data-category="uplink"]');
-        const uplinkStatus = data.categories.uplink;
-        const uplinkStyle = categoryStyles[uplinkStatus.risk] || categoryStyles.low;
+        const uplinkSeverity = uplinkPred?.severity || 'low';
+        const uplinkStyle = categoryStyles[uplinkSeverity] || categoryStyles.low;
         uplinkCard.style.borderLeftColor = uplinkStyle.border;
-        document.getElementById('pred-uplink-status').innerHTML = '<span style="color:' + uplinkStyle.border + '">' + uplinkStyle.text + '</span> - ' + uplinkStatus.issues.length + ' issue(s)';
+        document.getElementById('pred-uplink-status').innerHTML = '<span style="color:' + uplinkStyle.border + '">' + uplinkStyle.text + '</span>' + (uplinkPred ? ' - ' + (uplinkPred.issues?.length || 0) + ' issue(s)' : '');
 
         // RF
         const rfCard = document.querySelector('[data-category="rf"]');
-        const rfStatus = data.categories.rf;
-        const rfStyle = categoryStyles[rfStatus.risk] || categoryStyles.low;
+        const rfSeverity = rfPred?.severity || 'low';
+        const rfStyle = categoryStyles[rfSeverity] || categoryStyles.low;
         rfCard.style.borderLeftColor = rfStyle.border;
-        document.getElementById('pred-rf-status').innerHTML = '<span style="color:' + rfStyle.border + '">' + rfStyle.text + '</span> - ' + rfStatus.issues.length + ' issue(s)';
+        document.getElementById('pred-rf-status').innerHTML = '<span style="color:' + rfStyle.border + '">' + rfStyle.text + '</span>' + (rfPred ? ' - ' + (rfPred.issues?.length || 0) + ' issue(s)' : '');
 
         // PoE
         const poeCard = document.querySelector('[data-category="poe"]');
-        const poeStatus = data.categories.poe;
-        const poeStyle = categoryStyles[poeStatus.risk] || categoryStyles.low;
+        const poeSeverity = poePred?.severity || 'low';
+        const poeStyle = categoryStyles[poeSeverity] || categoryStyles.low;
         poeCard.style.borderLeftColor = poeStyle.border;
-        document.getElementById('pred-poe-status').innerHTML = '<span style="color:' + poeStyle.border + '">' + poeStyle.text + '</span> - ' + poeStatus.issues.length + ' issue(s)';
+        document.getElementById('pred-poe-status').innerHTML = '<span style="color:' + poeStyle.border + '">' + poeStyle.text + '</span>' + (poePred ? ' - ' + (poePred.issues?.length || 0) + ' issue(s)' : '');
 
         // Hardware
         const hwCard = document.querySelector('[data-category="hardware"]');
-        const hwStatus = data.categories.hardware;
-        const hwStyle = categoryStyles[hwStatus.risk] || categoryStyles.low;
+        const hwSeverity = hwPred?.severity || 'low';
+        const hwStyle = categoryStyles[hwSeverity] || categoryStyles.low;
         hwCard.style.borderLeftColor = hwStyle.border;
-        document.getElementById('pred-hardware-status').innerHTML = '<span style="color:' + hwStyle.border + '">' + hwStyle.text + '</span> - ' + hwStatus.issues.length + ' issue(s)';
+        document.getElementById('pred-hardware-status').innerHTML = '<span style="color:' + hwStyle.border + '">' + hwStyle.text + '</span>' + (hwPred ? ' - ' + (hwPred.issues?.length || 0) + ' issue(s)' : '');
 
         // Render predictions
         const predictionsDiv = document.getElementById('predictive-predictions');
@@ -2482,22 +2488,29 @@ app.get(UI_ROUTE, (_req, res) => {
                 low: { bg: 'rgba(129,199,132,0.15)', border: 'var(--success)', text: 'var(--success)' }
               };
               const colors = predColors[p.severity] || predColors.low;
+              const categoryNames = {
+                'uplink_degradation': 'Uplink Health',
+                'rf_congestion': 'RF Congestion',
+                'poe_degradation': 'PoE Budget',
+                'hardware_aging': 'Hardware Aging'
+              };
               return '<div style="padding:12px;background:' + colors.bg + ';border-left:3px solid ' + colors.border + ';border-radius:6px;margin-bottom:8px">' +
                 '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
                 '<span style="font-weight:600;color:' + colors.text + '">' + p.title + '</span>' +
                 '<div style="display:flex;gap:6px">' +
-                '<span style="padding:2px 8px;background:rgba(255,255,255,0.1);border-radius:10px;font-size:10px;color:rgba(255,255,255,0.7)">' + p.timeframe + '</span>' +
+                '<span style="padding:2px 8px;background:rgba(255,255,255,0.1);border-radius:10px;font-size:10px;color:rgba(255,255,255,0.7)">' + (p.timeframe || 'Unknown') + '</span>' +
                 '<span style="padding:2px 8px;background:' + colors.border + ';border-radius:10px;font-size:10px;color:rgba(0,0,0,0.87);text-transform:uppercase">' + p.severity + '</span>' +
                 '</div></div>' +
-                '<div style="font-size:13px;color:rgba(255,255,255,0.7)">' + p.detail + '</div>' +
-                '<div style="margin-top:8px;font-size:11px;color:rgba(255,255,255,0.5)">Category: ' + p.category + '</div>' +
+                '<div style="font-size:13px;color:rgba(255,255,255,0.7)">' + (p.details || '') + '</div>' +
+                (p.impact ? '<div style="margin-top:6px;font-size:12px;color:rgba(255,183,77,0.9)">Impact: ' + p.impact + '</div>' : '') +
+                '<div style="margin-top:8px;font-size:11px;color:rgba(255,255,255,0.5)">Category: ' + (categoryNames[p.category] || p.category) + '</div>' +
                 '</div>';
             }).join('');
         } else {
-          predictionsDiv.innerHTML = '<div style="padding:20px;text-align:center;color:rgba(255,255,255,0.5)">No outage risks predicted</div>';
+          predictionsDiv.innerHTML = '<div style="padding:20px;text-align:center;background:rgba(129,199,132,0.1);border-radius:8px;color:var(--success)"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:8px"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><div>No outage risks predicted - Network health is good!</div></div>';
         }
 
-        // Render recommendations
+        // Render recommendations (API uses 'detail' not 'action')
         const recsDiv = document.getElementById('predictive-recommendations');
         if (data.recommendations && data.recommendations.length > 0) {
           recsDiv.innerHTML = '<div style="font-weight:600;color:rgba(255,255,255,0.87);margin-bottom:12px">Preventive Actions</div>' +
@@ -2505,30 +2518,36 @@ app.get(UI_ROUTE, (_req, res) => {
               '<div style="padding:12px;background:rgba(129,199,132,0.1);border-left:3px solid var(--success);border-radius:6px;margin-bottom:8px">' +
               '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
               '<span style="font-weight:500;color:var(--success)">' + r.title + '</span>' +
-              '<span style="padding:2px 8px;background:rgba(255,255,255,0.1);border-radius:10px;font-size:10px;color:rgba(255,255,255,0.5);text-transform:uppercase">' + r.priority + '</span>' +
+              '<span style="padding:2px 8px;background:rgba(255,255,255,0.1);border-radius:10px;font-size:10px;color:rgba(255,255,255,0.5);text-transform:uppercase">' + (r.priority || 'medium') + '</span>' +
               '</div>' +
-              '<div style="font-size:13px;color:rgba(255,255,255,0.7)">' + r.action + '</div>' +
+              '<div style="font-size:13px;color:rgba(255,255,255,0.7)">' + (r.detail || '') + '</div>' +
               '</div>'
             ).join('');
         } else {
           recsDiv.innerHTML = '';
         }
 
-        // Render metrics
+        // Render metrics (API uses totalDevices, networks, etc.)
         const metricsDiv = document.getElementById('predictive-metrics');
         const metricItems = [];
         if (data.metrics) {
-          if (data.metrics.devicesAnalyzed) {
-            metricItems.push('<div style="padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:6px;font-size:12px"><span style="color:var(--primary);font-weight:600">' + data.metrics.devicesAnalyzed + '</span> Devices Analyzed</div>');
+          if (data.metrics.totalDevices) {
+            metricItems.push('<div style="padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:6px;font-size:12px"><span style="color:var(--primary);font-weight:600">' + data.metrics.totalDevices + '</span> Devices</div>');
           }
-          if (data.metrics.networksScanned) {
-            metricItems.push('<div style="padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:6px;font-size:12px"><span style="color:var(--secondary);font-weight:600">' + data.metrics.networksScanned + '</span> Networks</div>');
+          if (data.metrics.networks) {
+            metricItems.push('<div style="padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:6px;font-size:12px"><span style="color:var(--secondary);font-weight:600">' + data.metrics.networks + '</span> Networks</div>');
           }
-          if (data.metrics.criticalAlerts) {
-            metricItems.push('<div style="padding:8px 12px;background:rgba(207,102,121,0.15);border-radius:6px;font-size:12px"><span style="color:var(--destructive);font-weight:600">' + data.metrics.criticalAlerts + '</span> Critical Alerts</div>');
+          if (data.metrics.wirelessAPs) {
+            metricItems.push('<div style="padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:6px;font-size:12px"><span style="color:var(--primary);font-weight:600">' + data.metrics.wirelessAPs + '</span> APs</div>');
           }
-          if (data.metrics.warningAlerts) {
-            metricItems.push('<div style="padding:8px 12px;background:rgba(255,183,77,0.15);border-radius:6px;font-size:12px"><span style="color:var(--warning);font-weight:600">' + data.metrics.warningAlerts + '</span> Warnings</div>');
+          if (data.metrics.switches) {
+            metricItems.push('<div style="padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:6px;font-size:12px"><span style="color:var(--primary);font-weight:600">' + data.metrics.switches + '</span> Switches</div>');
+          }
+          if (data.metrics.offlineDevices > 0) {
+            metricItems.push('<div style="padding:8px 12px;background:rgba(207,102,121,0.15);border-radius:6px;font-size:12px"><span style="color:var(--destructive);font-weight:600">' + data.metrics.offlineDevices + '</span> Offline</div>');
+          }
+          if (data.metrics.dfsEvents > 0) {
+            metricItems.push('<div style="padding:8px 12px;background:rgba(255,183,77,0.15);border-radius:6px;font-size:12px"><span style="color:var(--warning);font-weight:600">' + data.metrics.dfsEvents + '</span> DFS Events</div>');
           }
         }
         metricsDiv.innerHTML = metricItems.join('');
