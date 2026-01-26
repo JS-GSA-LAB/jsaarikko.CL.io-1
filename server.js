@@ -1370,15 +1370,18 @@ app.get("/api/roaming/analysis", async (req, res) => {
             if (!clientConnectionHistory[mac]) {
               clientConnectionHistory[mac] = [];
             }
+            // Try multiple fields to identify the AP
+            const apId = event.deviceSerial || event.deviceMac || event.deviceName || event.apMac;
+            const apName = apMap[event.deviceSerial] || apMap[event.deviceMac?.toLowerCase()] || event.deviceName || 'Unknown';
             clientConnectionHistory[mac].push({
               timestamp: event.occurredAt,
               type: event.type,
-              ap: event.deviceSerial || event.deviceName,
-              apName: apMap[event.deviceSerial] || event.deviceName || 'Unknown',
+              ap: apId,
+              apName: apName,
               network: network.name,
-              ssid: event.ssidName || event.ssid,
-              rssi: event.rssi,
-              channel: event.channel
+              ssid: event.ssidName || event.ssid || event.eventData?.ssid,
+              rssi: event.rssi || event.eventData?.rssi,
+              channel: event.channel || event.eventData?.channel
             });
           }
         }
@@ -1699,6 +1702,7 @@ app.get("/api/roaming/analysis", async (req, res) => {
 
     result.metrics.optimizationScore = optimizationScore;
     result.metrics.totalRoams = totalRoams;
+    result.metrics.totalFailures = totalFailedRoams;
     result.metrics.failureRate = overallFailureRate.toFixed(1) + '%';
 
     res.json(result);
@@ -3577,8 +3581,10 @@ app.get(UI_ROUTE, (_req, res) => {
         document.getElementById('roaming-grade').style.background = score >= 80 ? 'rgba(129,199,132,0.3)' : score >= 60 ? 'rgba(255,183,77,0.3)' : 'rgba(207,102,121,0.3)';
         document.getElementById('roaming-summary').textContent = data.optimization?.summary || '';
 
-        // Update metrics
-        document.getElementById('roaming-metric-clients').textContent = data.clientMovements?.length || 0;
+        // Update metrics - show roaming clients, or unique clients with events if no roams
+        const roamingClients = data.clientMovements?.length || 0;
+        const uniqueClients = data.metrics?.uniqueClients || 0;
+        document.getElementById('roaming-metric-clients').textContent = roamingClients > 0 ? roamingClients : uniqueClients;
         document.getElementById('roaming-metric-roams').textContent = data.metrics?.totalRoams || 0;
         document.getElementById('roaming-metric-failures').textContent = data.metrics?.totalFailures || 0;
         document.getElementById('roaming-metric-sticky').textContent = data.stickyClients?.length || 0;
@@ -3624,7 +3630,13 @@ app.get(UI_ROUTE, (_req, res) => {
             '</div>'
           ).join('');
         } else {
-          clientsList.innerHTML = '<div class="muted" style="padding:12px;text-align:center">No roaming activity detected</div>';
+          const totalEvents = data.metrics?.totalEvents || 0;
+          const uniqueClients = data.metrics?.uniqueClients || 0;
+          if (totalEvents > 0) {
+            clientsList.innerHTML = '<div class="muted" style="padding:12px;text-align:center">' + uniqueClients + ' clients with ' + totalEvents + ' events<br><span style="font-size:11px">No AP-to-AP transitions detected</span></div>';
+          } else {
+            clientsList.innerHTML = '<div class="muted" style="padding:12px;text-align:center">No roaming activity detected</div>';
+          }
         }
 
         // Render roaming failures
