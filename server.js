@@ -4498,6 +4498,7 @@ const proxy = createProxyMiddleware({
   ws: true,
   xfwd: true,
   logLevel: "debug",
+  pathRewrite: { '^/': '/mcp' },  // Express strips /mcp mount path, so re-add it for upstream
   onProxyReq: (proxyReq, req) => {
     // Optionally strip Authorization header (some users want to avoid passing tokens through proxy)
     if (!FORWARD_AUTH_HEADER) {
