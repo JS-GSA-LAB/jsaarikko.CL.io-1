@@ -4498,7 +4498,8 @@ const proxy = createProxyMiddleware({
   ws: true,
   xfwd: true,
   logLevel: "debug",
-  pathRewrite: (path) => path.replace(new RegExp(`^${PROXY_ROUTE}`), ""),
+  // Keep /mcp path since upstream also expects it at /mcp
+  pathRewrite: false,
   onProxyReq: (proxyReq, req) => {
     // Optionally strip Authorization header (some users want to avoid passing tokens through proxy)
     if (!FORWARD_AUTH_HEADER) {
