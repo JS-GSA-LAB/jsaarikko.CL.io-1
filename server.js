@@ -4377,10 +4377,12 @@ app.get(UI_ROUTE, (_req, res) => {
           return;
         }
         container.innerHTML = orgs.map(org =>
-          '<a href="' + (org.url || 'https://dashboard.meraki.com') + '" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:rgba(157,190,64,0.2);border:1px solid rgba(157,190,64,0.4);border-radius:20px;text-decoration:none;transition:all 0.2s">' +
-          '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9dbe40" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>' +
-          '<span style="font-size:13px;font-weight:500;color:#9dbe40">' + org.name + '</span>' +
-          '</a>'
+          '<div style="padding:10px 14px;background:rgba(0,0,0,0.3);border:1px solid rgba(157,190,64,0.3);border-radius:8px;min-width:140px">' +
+          '<div style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.9);margin-bottom:4px">' + org.name + '</div>' +
+          '<a href="' + (org.url || 'https://dashboard.meraki.com') + '" target="_blank" style="font-size:11px;color:#9dbe40;text-decoration:none;display:inline-flex;align-items:center;gap:4px">' +
+          'Dashboard <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
+          '</a>' +
+          '</div>'
         ).join('');
       } catch (err) {
         container.innerHTML = '<div class="warn" style="font-size:12px">Error loading orgs</div>';
