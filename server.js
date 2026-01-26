@@ -4497,7 +4497,7 @@ const proxy = createProxyMiddleware({
   changeOrigin: true,
   ws: true,
   xfwd: true,
-  logLevel: "warn",
+  logLevel: "debug",
   pathRewrite: (path) => path.replace(new RegExp(`^${PROXY_ROUTE}`), ""),
   onProxyReq: (proxyReq, req) => {
     // Optionally strip Authorization header (some users want to avoid passing tokens through proxy)
@@ -4506,6 +4506,11 @@ const proxy = createProxyMiddleware({
     }
     // Preserve original host if needed (some MCP servers care)
     proxyReq.setHeader("x-original-host", req.headers.host || "");
+    console.log(`[Proxy] ${req.method} ${req.url} -> ${UPSTREAM}`);
+  },
+  onError: (err, req, res) => {
+    console.error(`[Proxy Error] ${err.message}`);
+    res.status(502).json({ error: "Proxy error", message: err.message, upstream: UPSTREAM });
   }
 });
 
