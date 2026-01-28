@@ -1307,6 +1307,258 @@ app.get("/api/predictive/analyze", async (req, res) => {
     predictions.metrics.agingDevices = agingIssues.length;
 
     // ===========================================
+    // 5. REBOOT DETECTION
+    // ===========================================
+    let rebootCount = 0;
+    const rebootIssues = [];
+
+    for (const network of networks) {
+      try {
+        const events = await merakiFetch(`/networks/${network.id}/events?perPage=500&timespan=86400`);
+        const allEvents = events.events || [];
+
+        // Find reboot events
+        const reboots = allEvents.filter(e =>
+          e.type === 'device_reboot' ||
+          e.type === 'reboot' ||
+          e.type?.includes('reboot') ||
+          e.type === 'device_status_change'
+        );
+
+        rebootCount += reboots.length;
+
+        // Track devices with multiple reboots
+        const deviceReboots = {};
+        reboots.forEach(r => {
+          const dev = r.deviceName || r.deviceSerial || 'unknown';
+          deviceReboots[dev] = (deviceReboots[dev] || 0) + 1;
+        });
+
+        for (const [dev, count] of Object.entries(deviceReboots)) {
+          if (count >= 2) {
+            rebootIssues.push({
+              device: dev,
+              network: network.name,
+              count: count,
+              issue: `${count} reboots in 24h - potential instability`,
+              severity: count >= 5 ? 'critical' : count >= 3 ? 'high' : 'medium'
+            });
+          }
+        }
+      } catch (e) { /* events may not be available */ }
+    }
+
+    predictions.metrics.recentReboots = rebootCount;
+
+    if (rebootIssues.length > 0) {
+      const criticalReboots = rebootIssues.filter(i => i.severity === 'critical');
+      predictions.predictions.push({
+        category: 'reboots',
+        title: 'Frequent Device Reboots',
+        severity: criticalReboots.length > 0 ? 'critical' : 'high',
+        probability: 80,
+        timeframe: '30-120 minutes',
+        details: `${rebootIssues.length} device(s) showing abnormal reboot patterns.`,
+        issues: rebootIssues.slice(0, 5),
+        impact: 'Service interruptions, client disconnections, potential hardware failure'
+      });
+      predictions.riskScore += criticalReboots.length > 0 ? 30 : 20;
+    }
+
+    // ===========================================
+    // 6. EVENT BURST DETECTION
+    // ===========================================
+    let eventBurstCount = 0;
+    const eventBurstIssues = [];
+
+    for (const network of networks) {
+      try {
+        const events = await merakiFetch(`/networks/${network.id}/events?perPage=1000&timespan=3600`);
+        const allEvents = events.events || [];
+
+        // Analyze event frequency by device (last hour)
+        const deviceEvents = {};
+        allEvents.forEach(e => {
+          const dev = e.deviceName || e.deviceSerial || 'unknown';
+          deviceEvents[dev] = (deviceEvents[dev] || 0) + 1;
+        });
+
+        for (const [dev, count] of Object.entries(deviceEvents)) {
+          if (count >= 100) {
+            eventBurstCount++;
+            eventBurstIssues.push({
+              device: dev,
+              network: network.name,
+              count: count,
+              issue: `${count} events in 1h - event burst detected`,
+              severity: count >= 500 ? 'critical' : count >= 200 ? 'high' : 'medium'
+            });
+          }
+        }
+      } catch (e) { /* events may not be available */ }
+    }
+
+    predictions.metrics.eventBursts = eventBurstCount;
+
+    if (eventBurstIssues.length > 0) {
+      predictions.predictions.push({
+        category: 'event_burst',
+        title: 'Event Burst Anomaly',
+        severity: eventBurstIssues.some(i => i.severity === 'critical') ? 'critical' : 'high',
+        probability: 75,
+        timeframe: '30-60 minutes',
+        details: `${eventBurstIssues.length} device(s) generating abnormal event volume.`,
+        issues: eventBurstIssues.slice(0, 5),
+        impact: 'Device overload, logging overflow, potential flapping'
+      });
+      predictions.riskScore += 25;
+    }
+
+    // ===========================================
+    // 7. AUTH/DHCP FAILURE DETECTION
+    // ===========================================
+    let authFailures = 0;
+    let dhcpFailures = 0;
+    const authIssues = [];
+    const dhcpIssues = [];
+
+    for (const network of networks) {
+      if (network.productTypes?.includes('wireless')) {
+        try {
+          const events = await merakiFetch(`/networks/${network.id}/events?productType=wireless&perPage=500&timespan=86400`);
+          const allEvents = events.events || [];
+
+          // Count auth failures
+          const authEvents = allEvents.filter(e =>
+            e.type === 'wpa_deauth' ||
+            e.type === 'auth_failure' ||
+            e.type === '8021x_auth' ||
+            e.type?.includes('auth') && e.type?.includes('fail')
+          );
+          authFailures += authEvents.length;
+
+          // Count DHCP failures
+          const dhcpEvents = allEvents.filter(e =>
+            e.type === 'dhcp_no_lease' ||
+            e.type === 'dhcp_decline' ||
+            e.type?.includes('dhcp') && (e.type?.includes('fail') || e.type?.includes('timeout'))
+          );
+          dhcpFailures += dhcpEvents.length;
+
+          // Group by device for issues
+          const deviceAuthFails = {};
+          authEvents.forEach(e => {
+            const dev = e.deviceName || 'unknown';
+            deviceAuthFails[dev] = (deviceAuthFails[dev] || 0) + 1;
+          });
+
+          for (const [dev, count] of Object.entries(deviceAuthFails)) {
+            if (count >= 20) {
+              authIssues.push({
+                device: dev,
+                network: network.name,
+                count: count,
+                issue: `${count} auth failures in 24h`,
+                severity: count >= 100 ? 'critical' : count >= 50 ? 'high' : 'medium'
+              });
+            }
+          }
+
+          const deviceDhcpFails = {};
+          dhcpEvents.forEach(e => {
+            const dev = e.deviceName || 'unknown';
+            deviceDhcpFails[dev] = (deviceDhcpFails[dev] || 0) + 1;
+          });
+
+          for (const [dev, count] of Object.entries(deviceDhcpFails)) {
+            if (count >= 10) {
+              dhcpIssues.push({
+                device: dev,
+                network: network.name,
+                count: count,
+                issue: `${count} DHCP failures in 24h`,
+                severity: count >= 50 ? 'critical' : count >= 20 ? 'high' : 'medium'
+              });
+            }
+          }
+        } catch (e) { /* events may not be available */ }
+      }
+    }
+
+    predictions.metrics.authFailures = authFailures;
+    predictions.metrics.dhcpFailures = dhcpFailures;
+
+    if (authIssues.length > 0) {
+      predictions.predictions.push({
+        category: 'auth_failures',
+        title: 'Rising Authentication Failures',
+        severity: authIssues.some(i => i.severity === 'critical') ? 'critical' : 'high',
+        probability: 70,
+        timeframe: '1-4 hours',
+        details: `${authFailures} auth failures across ${authIssues.length} device(s).`,
+        issues: authIssues.slice(0, 5),
+        impact: 'Client connectivity issues, RADIUS/802.1X problems'
+      });
+      predictions.riskScore += 20;
+    }
+
+    if (dhcpIssues.length > 0) {
+      predictions.predictions.push({
+        category: 'dhcp_failures',
+        title: 'DHCP Lease Failures',
+        severity: dhcpIssues.some(i => i.severity === 'critical') ? 'critical' : 'high',
+        probability: 65,
+        timeframe: '1-2 hours',
+        details: `${dhcpFailures} DHCP failures across ${dhcpIssues.length} device(s).`,
+        issues: dhcpIssues.slice(0, 5),
+        impact: 'Clients unable to get IP addresses, connectivity loss'
+      });
+      predictions.riskScore += 20;
+    }
+
+    // ===========================================
+    // 8. HIGH RETRY RATE DETECTION (Connection Stats)
+    // ===========================================
+    let highRetryDevices = 0;
+    const retryIssues = [];
+
+    for (const network of networks) {
+      if (network.productTypes?.includes('wireless')) {
+        try {
+          const connStats = await merakiFetch(`/networks/${network.id}/wireless/connectionStats?timespan=86400`);
+          if (connStats && connStats.assoc !== undefined) {
+            const retryRate = connStats.assoc > 0 ? ((connStats.assoc - (connStats.success || 0)) / connStats.assoc * 100) : 0;
+            if (retryRate > 20) {
+              highRetryDevices++;
+              retryIssues.push({
+                network: network.name,
+                retryRate: retryRate.toFixed(1) + '%',
+                issue: `High association retry rate: ${retryRate.toFixed(1)}%`,
+                severity: retryRate > 50 ? 'critical' : retryRate > 30 ? 'high' : 'medium'
+              });
+            }
+          }
+        } catch (e) { /* connection stats may not be available */ }
+      }
+    }
+
+    predictions.metrics.highRetryNetworks = highRetryDevices;
+
+    if (retryIssues.length > 0) {
+      predictions.predictions.push({
+        category: 'high_retries',
+        title: 'Rising Connection Retries',
+        severity: retryIssues.some(i => i.severity === 'critical') ? 'critical' : 'high',
+        probability: 60,
+        timeframe: '2-6 hours',
+        details: `${retryIssues.length} network(s) with elevated retry rates.`,
+        issues: retryIssues.slice(0, 5),
+        impact: 'Poor client experience, connection failures, throughput degradation'
+      });
+      predictions.riskScore += 15;
+    }
+
+    // ===========================================
     // CALCULATE OVERALL RISK
     // ===========================================
     if (predictions.riskScore >= 60) {
@@ -2765,6 +3017,10 @@ app.get(UI_ROUTE, (_req, res) => {
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
           Health Radar
         </button>
+        <button onclick="switchAnalysisTab('predictive')" id="tab-predictive" class="ai-tab" style="padding:10px 20px;background:rgba(255,152,0,0.15);border:1px solid rgba(255,152,0,0.3);border-radius:8px;color:#FF9800;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Predictive
+        </button>
       </div>
 
       <!-- Roaming Tab Content -->
@@ -3018,6 +3274,79 @@ app.get(UI_ROUTE, (_req, res) => {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Predictive Tab Content -->
+      <div id="panel-predictive" class="ai-panel" style="margin-top:20px;display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+          <div>
+            <div style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.87)">Predictive Failure Detection</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.5)">AI forecasts risk of outage/flapping within 30-120 minutes</div>
+          </div>
+          <button onclick="runPredictiveAnalysis()" id="predictive-button" style="padding:10px 20px;background:linear-gradient(135deg,#FF9800,#F57C00);border:none;border-radius:8px;color:rgba(0,0,0,0.87);font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Analyze
+          </button>
+        </div>
+
+        <div id="predictive-results" style="display:none">
+          <div id="predictive-loading" style="display:none;padding:40px;text-align:center">
+            <div style="width:40px;height:40px;border:3px solid rgba(255,152,0,0.3);border-top-color:#FF9800;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto"></div>
+            <div style="margin-top:12px;color:var(--foreground-muted)">Analyzing device health signals...</div>
+          </div>
+
+          <div id="predictive-content" style="display:none">
+            <!-- Risk Level Display -->
+            <div id="predictive-risk" style="padding:20px;border-radius:12px;margin-bottom:20px;background:linear-gradient(135deg,rgba(255,152,0,0.2),rgba(245,124,0,0.1))">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px">
+                <div>
+                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,0.6);margin-bottom:4px">Outage Risk Level</div>
+                  <div style="display:flex;align-items:baseline;gap:12px">
+                    <span id="predictive-risk-level" style="font-size:36px;font-weight:700;color:#FF9800">--</span>
+                    <span id="predictive-risk-score" style="font-size:14px;color:rgba(255,255,255,0.6)">Risk Score: --/100</span>
+                  </div>
+                </div>
+                <div style="font-size:12px;color:rgba(255,255,255,0.5);max-width:300px">
+                  <strong style="color:#FF9800">Signals monitored:</strong> Reboots, event bursts, uplink instability, rising retries, auth/DHCP failures
+                </div>
+              </div>
+            </div>
+
+            <!-- Signal Categories -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px" id="predictive-metrics">
+              <div style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center;border-left:3px solid #f44336">
+                <div style="font-size:20px;font-weight:700;color:#f44336" id="metric-reboots">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Recent Reboots</div>
+              </div>
+              <div style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center;border-left:3px solid #ff9800">
+                <div style="font-size:20px;font-weight:700;color:#ff9800" id="metric-events">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Event Bursts</div>
+              </div>
+              <div style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center;border-left:3px solid #2196f3">
+                <div style="font-size:20px;font-weight:700;color:#2196f3" id="metric-uplink">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Uplink Issues</div>
+              </div>
+              <div style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center;border-left:3px solid #9c27b0">
+                <div style="font-size:20px;font-weight:700;color:#9c27b0" id="metric-retries">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">High Retries</div>
+              </div>
+              <div style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center;border-left:3px solid #00bcd4">
+                <div style="font-size:20px;font-weight:700;color:#00bcd4" id="metric-auth">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Auth Failures</div>
+              </div>
+              <div style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center;border-left:3px solid #4caf50">
+                <div style="font-size:20px;font-weight:700;color:#4caf50" id="metric-dhcp">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">DHCP Failures</div>
+              </div>
+            </div>
+
+            <!-- At-Risk Devices -->
+            <div id="predictive-predictions" style="margin-bottom:16px"></div>
+
+            <!-- Recommendations -->
+            <div id="predictive-recommendations"></div>
           </div>
         </div>
       </div>
@@ -3279,11 +3608,12 @@ app.get(UI_ROUTE, (_req, res) => {
     // AI Network Intelligence Tab Switching
     function switchAnalysisTab(tab) {
       // Update tab buttons
-      const tabs = ['roaming', 'telemetry', 'radar'];
+      const tabs = ['roaming', 'telemetry', 'radar', 'predictive'];
       const colors = {
         roaming: { active: 'linear-gradient(135deg,#00BCD4,#009688)', inactive: 'rgba(0,188,212,0.15)', border: 'rgba(0,188,212,0.3)', text: '#00BCD4', activeText: 'rgba(0,0,0,0.87)' },
         telemetry: { active: 'linear-gradient(135deg,#2196F3,#03A9F4)', inactive: 'rgba(33,150,243,0.15)', border: 'rgba(33,150,243,0.3)', text: '#2196F3', activeText: 'rgba(255,255,255,0.95)' },
-        radar: { active: 'linear-gradient(135deg,#4CAF50,#8BC34A)', inactive: 'rgba(76,175,80,0.15)', border: 'rgba(76,175,80,0.3)', text: '#4CAF50', activeText: 'rgba(0,0,0,0.87)' }
+        radar: { active: 'linear-gradient(135deg,#4CAF50,#8BC34A)', inactive: 'rgba(76,175,80,0.15)', border: 'rgba(76,175,80,0.3)', text: '#4CAF50', activeText: 'rgba(0,0,0,0.87)' },
+        predictive: { active: 'linear-gradient(135deg,#FF9800,#F57C00)', inactive: 'rgba(255,152,0,0.15)', border: 'rgba(255,152,0,0.3)', text: '#FF9800', activeText: 'rgba(0,0,0,0.87)' }
       };
 
       tabs.forEach(t => {
@@ -3355,73 +3685,14 @@ app.get(UI_ROUTE, (_req, res) => {
         document.getElementById('predictive-risk-level').style.color = riskStyle.text;
         document.getElementById('predictive-risk-score').textContent = 'Risk Score: ' + (data.riskScore || 0) + '/100';
 
-        // Update category cards based on predictions
-        const categoryStyles = {
-          critical: { border: 'var(--destructive)', text: 'At Risk' },
-          high: { border: 'var(--warning)', text: 'Warning' },
-          medium: { border: 'var(--primary)', text: 'Monitor' },
-          low: { border: 'var(--success)', text: 'Healthy' }
-        };
-
-        // Extract category status from predictions
-        const uplinkPred = data.predictions?.find(p => p.category === 'uplink_degradation');
-        const rfPred = data.predictions?.find(p => p.category === 'rf_congestion');
-        const poePred = data.predictions?.find(p => p.category === 'poe_degradation');
-        const hwPred = data.predictions?.find(p => p.category === 'hardware_aging');
-
-        // Uplink
-        const uplinkCard = document.querySelector('[data-category="uplink"]');
-        const uplinkSeverity = uplinkPred?.severity || 'low';
-        const uplinkStyle = categoryStyles[uplinkSeverity] || categoryStyles.low;
-        uplinkCard.style.borderLeftColor = uplinkStyle.border;
-        document.getElementById('pred-uplink-status').innerHTML = '<span style="color:' + uplinkStyle.border + '">' + uplinkStyle.text + '</span>' + (uplinkPred ? ' - ' + (uplinkPred.issues?.length || 0) + ' issue(s)' : '');
-
-        // RF
-        const rfCard = document.querySelector('[data-category="rf"]');
-        const rfSeverity = rfPred?.severity || 'low';
-        const rfStyle = categoryStyles[rfSeverity] || categoryStyles.low;
-        rfCard.style.borderLeftColor = rfStyle.border;
-        document.getElementById('pred-rf-status').innerHTML = '<span style="color:' + rfStyle.border + '">' + rfStyle.text + '</span>' + (rfPred ? ' - ' + (rfPred.issues?.length || 0) + ' issue(s)' : '');
-
-        // PoE
-        const poeCard = document.querySelector('[data-category="poe"]');
-        const poeSeverity = poePred?.severity || 'low';
-        const poeStyle = categoryStyles[poeSeverity] || categoryStyles.low;
-        poeCard.style.borderLeftColor = poeStyle.border;
-        document.getElementById('pred-poe-status').innerHTML = '<span style="color:' + poeStyle.border + '">' + poeStyle.text + '</span>' + (poePred ? ' - ' + (poePred.issues?.length || 0) + ' issue(s)' : '');
-
-        // Hardware
-        const hwCard = document.querySelector('[data-category="hardware"]');
-        const hwSeverity = hwPred?.severity || 'low';
-        const hwStyle = categoryStyles[hwSeverity] || categoryStyles.low;
-        hwCard.style.borderLeftColor = hwStyle.border;
-        document.getElementById('pred-hardware-status').innerHTML = '<span style="color:' + hwStyle.border + '">' + hwStyle.text + '</span>' + (hwPred ? ' - ' + (hwPred.issues?.length || 0) + ' issue(s)' : '');
-
-        // Auth/DHCP
-        const authPred = data.predictions?.find(p => p.category === 'auth_failures' || p.category === 'dhcp_failures');
-        const authCard = document.querySelector('[data-category="auth"]');
-        if (authCard) {
-          const authSeverity = authPred?.severity || 'low';
-          const authStyle = categoryStyles[authSeverity] || categoryStyles.low;
-          authCard.style.borderLeftColor = authStyle.border;
-          document.getElementById('pred-auth-status').innerHTML = '<span style="color:' + authStyle.border + '">' + authStyle.text + '</span>' + (authPred ? ' - ' + (authPred.issues?.length || 0) + ' issue(s)' : '');
-        }
-
-        // Event Bursts
-        const eventPred = data.predictions?.find(p => p.category === 'event_burst');
-        const eventsCard = document.querySelector('[data-category="events"]');
-        if (eventsCard) {
-          const eventSeverity = eventPred?.severity || 'low';
-          const eventStyle = categoryStyles[eventSeverity] || categoryStyles.low;
-          eventsCard.style.borderLeftColor = eventStyle.border;
-          document.getElementById('pred-events-status').innerHTML = '<span style="color:' + eventStyle.border + '">' + eventStyle.text + '</span>' + (eventPred ? ' - ' + (eventPred.issues?.length || 0) + ' issue(s)' : '');
-        }
-
-        // Update metrics
+        // Update signal metric cards
         if (data.metrics) {
-          document.getElementById('pred-metric-devices').textContent = data.metrics.totalDevices || '--';
-          document.getElementById('pred-metric-networks').textContent = data.metrics.networks || '--';
-          document.getElementById('pred-metric-events').textContent = data.metrics.eventsAnalyzed || '--';
+          document.getElementById('metric-reboots').textContent = data.metrics.recentReboots || 0;
+          document.getElementById('metric-events').textContent = data.metrics.eventBursts || 0;
+          document.getElementById('metric-uplink').textContent = data.metrics.uplinkIssues || 0;
+          document.getElementById('metric-retries').textContent = data.metrics.highRetryNetworks || 0;
+          document.getElementById('metric-auth').textContent = data.metrics.authFailures || 0;
+          document.getElementById('metric-dhcp').textContent = data.metrics.dhcpFailures || 0;
         }
 
         // Render predictions
@@ -3509,7 +3780,11 @@ app.get(UI_ROUTE, (_req, res) => {
         document.getElementById('predictive-risk').innerHTML = '<div style="color:var(--destructive)">Error: ' + err.message + '</div>';
         document.getElementById('predictive-predictions').innerHTML = '';
         document.getElementById('predictive-recommendations').innerHTML = '';
-        document.getElementById('predictive-metrics').innerHTML = '';
+        // Reset metric values on error
+        ['metric-reboots', 'metric-events', 'metric-uplink', 'metric-retries', 'metric-auth', 'metric-dhcp'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = '--';
+        });
       }
 
       // Reset button
