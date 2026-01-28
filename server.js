@@ -2710,15 +2710,11 @@ app.get(UI_ROUTE, (_req, res) => {
         <h2>AI Network Intelligence</h2>
         <span style="margin-left:auto;padding:4px 10px;background:linear-gradient(135deg,#9C27B0,#673AB7);border-radius:12px;font-size:10px;font-weight:600;color:rgba(255,255,255,0.95);text-transform:uppercase">AI-Powered</span>
       </div>
-      <div class="muted">Predictive failure detection, roaming optimization, switch telemetry, and health insights</div>
+      <div class="muted">Roaming optimization, switch telemetry, and health insights in one unified view</div>
 
       <!-- Tab Navigation -->
-      <div id="ai-analysis-tabs" style="display:flex;gap:8px;margin-top:16px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:12px;flex-wrap:wrap">
-        <button onclick="switchAnalysisTab('predictive')" id="tab-predictive" class="ai-tab active" style="padding:10px 20px;background:linear-gradient(135deg,#FF6B35,#FFB74D);border:none;border-radius:8px;color:rgba(0,0,0,0.87);font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          Predictive
-        </button>
-        <button onclick="switchAnalysisTab('roaming')" id="tab-roaming" class="ai-tab" style="padding:10px 20px;background:rgba(0,188,212,0.15);border:1px solid rgba(0,188,212,0.3);border-radius:8px;color:#00BCD4;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
+      <div id="ai-analysis-tabs" style="display:flex;gap:8px;margin-top:16px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:12px">
+        <button onclick="switchAnalysisTab('roaming')" id="tab-roaming" class="ai-tab active" style="padding:10px 20px;background:linear-gradient(135deg,#00BCD4,#00ACC1);border:none;border-radius:8px;color:rgba(0,0,0,0.87);font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/></svg>
           Roaming
         </button>
@@ -2732,98 +2728,8 @@ app.get(UI_ROUTE, (_req, res) => {
         </button>
       </div>
 
-      <!-- Predictive Failure Detection Tab Content -->
-      <div id="panel-predictive" class="ai-panel" style="margin-top:20px">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
-          <div>
-            <div style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.87)">Predictive Failure Detection</div>
-            <div style="font-size:12px;color:rgba(255,255,255,0.5)">AI forecasts risk of device outage/flapping within 30-120 minutes</div>
-          </div>
-          <button onclick="runPredictiveAnalysis()" id="predictive-button" style="padding:10px 20px;background:linear-gradient(135deg,#FF6B35,#FFB74D);border:none;border-radius:8px;color:rgba(0,0,0,0.87);font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-            Run Analysis
-          </button>
-        </div>
-
-        <div id="predictive-results" style="display:none">
-          <div id="predictive-loading" style="display:none;padding:40px;text-align:center">
-            <div style="width:40px;height:40px;border:3px solid rgba(255,107,53,0.3);border-top-color:#FF6B35;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto"></div>
-            <div style="margin-top:12px;color:var(--foreground-muted)">Analyzing network health signals...</div>
-          </div>
-
-          <div id="predictive-content" style="display:none">
-            <!-- Risk Level Summary -->
-            <div id="predictive-risk" style="padding:20px;border-radius:12px;margin-bottom:20px;text-align:center;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1)">
-              <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,0.6);margin-bottom:8px">Overall Risk Level</div>
-              <div id="predictive-risk-level" style="font-size:36px;font-weight:700">--</div>
-              <div id="predictive-risk-score" style="font-size:14px;color:rgba(255,255,255,0.6);margin-top:4px">Risk Score: --</div>
-              <div id="predictive-timeframe" style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:8px">Forecast Window: 30-120 minutes</div>
-            </div>
-
-            <!-- Signal Categories -->
-            <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px">Failure Signals Analyzed</div>
-            <div id="predictive-categories" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px">
-              <div class="pred-category" data-category="reboots" style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid rgba(255,107,53,0.5)">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
-                  <span style="font-weight:600;font-size:12px">Reboots</span>
-                </div>
-                <div id="pred-reboots-status" style="font-size:11px;color:rgba(255,255,255,0.6)">--</div>
-              </div>
-              <div class="pred-category" data-category="events" style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid rgba(255,107,53,0.5)">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-                  <span style="font-weight:600;font-size:12px">Event Bursts</span>
-                </div>
-                <div id="pred-events-status" style="font-size:11px;color:rgba(255,255,255,0.6)">--</div>
-              </div>
-              <div class="pred-category" data-category="uplink" style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid rgba(255,107,53,0.5)">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="m4.93 10.93 1.41 1.41"/><path d="M2 18h2"/><path d="M20 18h2"/><path d="m19.07 10.93-1.41 1.41"/><path d="M22 22H2"/><path d="m8 22 4-10 4 10"/></svg>
-                  <span style="font-weight:600;font-size:12px">Uplink Health</span>
-                </div>
-                <div id="pred-uplink-status" style="font-size:11px;color:rgba(255,255,255,0.6)">--</div>
-              </div>
-              <div class="pred-category" data-category="retries" style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid rgba(255,107,53,0.5)">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
-                  <span style="font-weight:600;font-size:12px">RF Retries</span>
-                </div>
-                <div id="pred-retries-status" style="font-size:11px;color:rgba(255,255,255,0.6)">--</div>
-              </div>
-              <div class="pred-category" data-category="auth" style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid rgba(255,107,53,0.5)">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                  <span style="font-weight:600;font-size:12px">Auth Failures</span>
-                </div>
-                <div id="pred-auth-status" style="font-size:11px;color:rgba(255,255,255,0.6)">--</div>
-              </div>
-              <div class="pred-category" data-category="dhcp" style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid rgba(255,107,53,0.5)">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-                  <span style="font-weight:600;font-size:12px">DHCP Issues</span>
-                </div>
-                <div id="pred-dhcp-status" style="font-size:11px;color:rgba(255,255,255,0.6)">--</div>
-              </div>
-            </div>
-
-            <!-- Predictions List -->
-            <div id="predictive-predictions" style="margin-bottom:20px"></div>
-
-            <!-- Recommendations -->
-            <div id="predictive-recommendations" style="margin-bottom:16px"></div>
-
-            <!-- Metrics Summary -->
-            <div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;margin-top:16px">
-              <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.6);margin-bottom:8px;text-transform:uppercase">Analysis Metrics</div>
-              <div id="predictive-metrics" style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:rgba(255,255,255,0.5)"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- Roaming Tab Content -->
-      <div id="panel-roaming" class="ai-panel" style="margin-top:20px;display:none">
+      <div id="panel-roaming" class="ai-panel" style="margin-top:20px">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
           <div>
             <div style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.87)">Roaming Path Tracking</div>
@@ -3325,9 +3231,8 @@ app.get(UI_ROUTE, (_req, res) => {
     // AI Network Intelligence Tab Switching
     function switchAnalysisTab(tab) {
       // Update tab buttons
-      const tabs = ['predictive', 'roaming', 'telemetry', 'radar'];
+      const tabs = ['roaming', 'telemetry', 'radar'];
       const colors = {
-        predictive: { active: 'linear-gradient(135deg,#FF6B35,#FFB74D)', inactive: 'rgba(255,107,53,0.15)', border: 'rgba(255,107,53,0.3)', text: '#FF6B35', activeText: 'rgba(0,0,0,0.87)' },
         roaming: { active: 'linear-gradient(135deg,#00BCD4,#009688)', inactive: 'rgba(0,188,212,0.15)', border: 'rgba(0,188,212,0.3)', text: '#00BCD4', activeText: 'rgba(0,0,0,0.87)' },
         telemetry: { active: 'linear-gradient(135deg,#2196F3,#03A9F4)', inactive: 'rgba(33,150,243,0.15)', border: 'rgba(33,150,243,0.3)', text: '#2196F3', activeText: 'rgba(255,255,255,0.95)' },
         radar: { active: 'linear-gradient(135deg,#4CAF50,#8BC34A)', inactive: 'rgba(76,175,80,0.15)', border: 'rgba(76,175,80,0.3)', text: '#4CAF50', activeText: 'rgba(0,0,0,0.87)' }
@@ -3551,176 +3456,6 @@ app.get(UI_ROUTE, (_req, res) => {
           btn.style.color = 'rgba(255,255,255,0.6)';
         }
       });
-    }
-
-    // Predictive Failure Detection Functions
-    async function runPredictiveAnalysis() {
-      const resultsDiv = document.getElementById('predictive-results');
-      const loadingDiv = document.getElementById('predictive-loading');
-      const contentDiv = document.getElementById('predictive-content');
-      const button = document.getElementById('predictive-button');
-
-      // Show loading state
-      resultsDiv.style.display = 'block';
-      loadingDiv.style.display = 'block';
-      contentDiv.style.display = 'none';
-      button.disabled = true;
-      button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Analyzing...';
-
-      try {
-        const res = await fetchWithTimeout('/api/predictive/analyze', {}, 45000);
-        const data = await res.json();
-
-        if (data.error) {
-          throw new Error(data.error);
-        }
-
-        // Hide loading, show content
-        loadingDiv.style.display = 'none';
-        contentDiv.style.display = 'block';
-
-        // Update risk level display
-        const riskLevel = data.riskLevel || 'low';
-        const riskScore = data.riskScore || 0;
-        const riskColors = {
-          critical: { bg: 'linear-gradient(135deg,rgba(207,102,121,0.3),rgba(207,102,121,0.1))', text: '#CF6679', border: 'rgba(207,102,121,0.5)' },
-          high: { bg: 'linear-gradient(135deg,rgba(255,107,53,0.3),rgba(255,183,77,0.1))', text: '#FF6B35', border: 'rgba(255,107,53,0.5)' },
-          medium: { bg: 'linear-gradient(135deg,rgba(255,183,77,0.3),rgba(255,213,79,0.1))', text: '#FFB74D', border: 'rgba(255,183,77,0.5)' },
-          low: { bg: 'linear-gradient(135deg,rgba(129,199,132,0.3),rgba(129,199,132,0.1))', text: '#81C784', border: 'rgba(129,199,132,0.5)' }
-        };
-        const riskStyle = riskColors[riskLevel] || riskColors.low;
-
-        const riskDiv = document.getElementById('predictive-risk');
-        riskDiv.style.background = riskStyle.bg;
-        riskDiv.style.border = '1px solid ' + riskStyle.border;
-
-        document.getElementById('predictive-risk-level').textContent = riskLevel.toUpperCase();
-        document.getElementById('predictive-risk-level').style.color = riskStyle.text;
-        document.getElementById('predictive-risk-score').textContent = 'Risk Score: ' + riskScore + '/100';
-
-        // Update signal categories
-        const metrics = data.metrics || {};
-        const predictions = data.predictions || [];
-
-        // Reboots signal
-        const offlineCount = metrics.offlineDevices || 0;
-        updatePredictiveCategory('reboots', offlineCount > 0 ? offlineCount + ' device(s) offline' : 'No issues detected', offlineCount > 0 ? 'warn' : 'ok');
-
-        // Event bursts (RF changes)
-        const channelChanges = metrics.channelChanges || 0;
-        const dfsEvents = metrics.dfsEvents || 0;
-        const eventTotal = channelChanges + dfsEvents;
-        updatePredictiveCategory('events', eventTotal > 50 ? eventTotal + ' RF events' : eventTotal + ' events (normal)', eventTotal > 100 ? 'critical' : eventTotal > 50 ? 'warn' : 'ok');
-
-        // Uplink health
-        const uplinkIssues = metrics.uplinkIssues || 0;
-        updatePredictiveCategory('uplink', uplinkIssues > 0 ? uplinkIssues + ' issue(s) found' : 'All uplinks healthy', uplinkIssues > 0 ? 'warn' : 'ok');
-
-        // RF Retries (based on channel changes as proxy)
-        updatePredictiveCategory('retries', channelChanges > 100 ? 'High RF instability' : 'Within normal range', channelChanges > 100 ? 'warn' : 'ok');
-
-        // Auth failures (inferred from predictions)
-        const hasAuthIssues = predictions.some(p => p.category === 'auth_failures');
-        updatePredictiveCategory('auth', hasAuthIssues ? 'Issues detected' : 'No anomalies', hasAuthIssues ? 'warn' : 'ok');
-
-        // DHCP issues (inferred)
-        const hasDhcpIssues = predictions.some(p => p.category === 'dhcp_issues');
-        updatePredictiveCategory('dhcp', hasDhcpIssues ? 'Issues detected' : 'Operating normally', hasDhcpIssues ? 'warn' : 'ok');
-
-        // Render predictions
-        const predsDiv = document.getElementById('predictive-predictions');
-        if (predictions.length > 0) {
-          predsDiv.innerHTML = '<div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px">Predicted Failures</div>' +
-            predictions.map(p => {
-              const sevColors = {
-                critical: { bg: 'rgba(207,102,121,0.15)', border: '#CF6679', icon: '#CF6679' },
-                high: { bg: 'rgba(255,107,53,0.15)', border: '#FF6B35', icon: '#FF6B35' },
-                medium: { bg: 'rgba(255,183,77,0.15)', border: '#FFB74D', icon: '#FFB74D' },
-                low: { bg: 'rgba(129,199,132,0.15)', border: '#81C784', icon: '#81C784' }
-              };
-              const sev = sevColors[p.severity] || sevColors.medium;
-              return '<div style="padding:16px;background:' + sev.bg + ';border-left:3px solid ' + sev.border + ';border-radius:8px;margin-bottom:12px">' +
-                '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px">' +
-                '<div style="font-weight:600;color:' + sev.icon + ';font-size:14px">' + p.title + '</div>' +
-                '<div style="display:flex;gap:8px;align-items:center;flex-shrink:0">' +
-                '<span style="padding:3px 8px;background:rgba(0,0,0,0.3);border-radius:10px;font-size:10px;color:rgba(255,255,255,0.8)">' + (p.probability || 0) + '% probability</span>' +
-                '<span style="padding:3px 8px;background:' + sev.border + ';border-radius:10px;font-size:10px;color:rgba(0,0,0,0.87);text-transform:uppercase;font-weight:600">' + p.severity + '</span>' +
-                '</div></div>' +
-                '<div style="font-size:13px;color:rgba(255,255,255,0.7);margin-bottom:8px">' + (p.details || '') + '</div>' +
-                '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:rgba(255,255,255,0.5)">' +
-                '<span>Timeframe: <strong style="color:rgba(255,255,255,0.8)">' + (p.timeframe || 'Unknown') + '</strong></span>' +
-                '<span>Impact: <strong style="color:rgba(255,255,255,0.8)">' + (p.impact || 'Unknown') + '</strong></span>' +
-                '</div>' +
-                (p.issues && p.issues.length > 0 ? '<div style="margin-top:10px;padding:10px;background:rgba(0,0,0,0.2);border-radius:6px">' +
-                '<div style="font-size:10px;color:rgba(255,255,255,0.5);margin-bottom:6px;text-transform:uppercase">Affected Devices</div>' +
-                p.issues.slice(0, 3).map(i => '<div style="font-size:11px;color:rgba(255,255,255,0.7);padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.05)">' +
-                '<strong>' + (i.device || i.network || 'Unknown') + '</strong>: ' + (i.issue || i.detail || '') + '</div>').join('') +
-                '</div>' : '') +
-                '</div>';
-            }).join('');
-        } else {
-          predsDiv.innerHTML = '<div style="padding:20px;text-align:center;background:rgba(129,199,132,0.1);border-radius:12px;border:1px solid rgba(129,199,132,0.3)">' +
-            '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#81C784" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:8px"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' +
-            '<div style="font-size:14px;font-weight:600;color:#81C784">No Imminent Failures Predicted</div>' +
-            '<div style="font-size:12px;color:rgba(255,255,255,0.6);margin-top:4px">All systems operating within normal parameters</div>' +
-            '</div>';
-        }
-
-        // Render recommendations
-        const recsDiv = document.getElementById('predictive-recommendations');
-        const recs = data.recommendations || [];
-        if (recs.length > 0) {
-          recsDiv.innerHTML = '<div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px">Recommendations</div>' +
-            recs.map(r => {
-              const priorityColors = { high: '#FF6B35', medium: '#FFB74D', low: '#81C784' };
-              const pColor = priorityColors[r.priority] || priorityColors.medium;
-              return '<div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;margin-bottom:8px;border-left:3px solid ' + pColor + '">' +
-                '<div style="font-weight:600;color:' + pColor + ';font-size:13px;margin-bottom:4px">' + r.title + '</div>' +
-                '<div style="font-size:12px;color:rgba(255,255,255,0.6)">' + (r.detail || '') + '</div>' +
-                '</div>';
-            }).join('');
-        } else {
-          recsDiv.innerHTML = '';
-        }
-
-        // Render metrics
-        const metricsDiv = document.getElementById('predictive-metrics');
-        metricsDiv.innerHTML = [
-          '<span>Devices: <strong>' + (metrics.totalDevices || 0) + '</strong></span>',
-          '<span>Networks: <strong>' + (metrics.networks || 0) + '</strong></span>',
-          '<span>Wireless APs: <strong>' + (metrics.wirelessAPs || 0) + '</strong></span>',
-          '<span>Switches: <strong>' + (metrics.switches || 0) + '</strong></span>',
-          '<span>Offline: <strong style="color:' + (offlineCount > 0 ? 'var(--destructive)' : 'inherit') + '">' + offlineCount + '</strong></span>'
-        ].join('');
-
-      } catch (err) {
-        loadingDiv.style.display = 'none';
-        contentDiv.style.display = 'block';
-        document.getElementById('predictive-predictions').innerHTML =
-          '<div style="padding:20px;text-align:center;background:rgba(207,102,121,0.1);border-radius:12px;border:1px solid rgba(207,102,121,0.3)">' +
-          '<div style="font-size:14px;color:var(--destructive)">Analysis failed: ' + err.message + '</div>' +
-          '</div>';
-      }
-
-      // Reset button
-      button.disabled = false;
-      button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> Run Analysis';
-    }
-
-    function updatePredictiveCategory(category, text, status) {
-      const el = document.getElementById('pred-' + category + '-status');
-      if (el) {
-        el.textContent = text;
-        const parent = el.closest('.pred-category');
-        if (parent) {
-          const colors = {
-            ok: 'rgba(129,199,132,0.5)',
-            warn: 'rgba(255,183,77,0.5)',
-            critical: 'rgba(207,102,121,0.5)'
-          };
-          parent.style.borderLeftColor = colors[status] || colors.ok;
-        }
-      }
     }
 
     async function runRoamingAnalysis() {
