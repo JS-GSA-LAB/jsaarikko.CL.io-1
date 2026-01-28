@@ -2710,15 +2710,11 @@ app.get(UI_ROUTE, (_req, res) => {
         <h2>AI Network Intelligence</h2>
         <span style="margin-left:auto;padding:4px 10px;background:linear-gradient(135deg,#9C27B0,#673AB7);border-radius:12px;font-size:10px;font-weight:600;color:rgba(255,255,255,0.95);text-transform:uppercase">AI-Powered</span>
       </div>
-      <div class="muted">Predictive analysis, roaming optimization, and switch telemetry in one unified view</div>
+      <div class="muted">Roaming optimization, switch telemetry, and health insights in one unified view</div>
 
       <!-- Tab Navigation -->
       <div id="ai-analysis-tabs" style="display:flex;gap:8px;margin-top:16px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:12px">
-        <button onclick="switchAnalysisTab('predictive')" id="tab-predictive" class="ai-tab active" style="padding:10px 20px;background:linear-gradient(135deg,#FF6B35,#FFB74D);border:none;border-radius:8px;color:rgba(0,0,0,0.87);font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          Predictive
-        </button>
-        <button onclick="switchAnalysisTab('roaming')" id="tab-roaming" class="ai-tab" style="padding:10px 20px;background:rgba(0,188,212,0.15);border:1px solid rgba(0,188,212,0.3);border-radius:8px;color:#00BCD4;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
+        <button onclick="switchAnalysisTab('roaming')" id="tab-roaming" class="ai-tab active" style="padding:10px 20px;background:linear-gradient(135deg,#00BCD4,#00ACC1);border:none;border-radius:8px;color:rgba(0,0,0,0.87);font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/></svg>
           Roaming
         </button>
@@ -2732,72 +2728,8 @@ app.get(UI_ROUTE, (_req, res) => {
         </button>
       </div>
 
-      <!-- Predictive Tab Content -->
-      <div id="panel-predictive" class="ai-panel" style="margin-top:20px">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
-          <div>
-            <div style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.87)">Predictive Outage Detection</div>
-            <div style="font-size:12px;color:rgba(255,255,255,0.5)">AI-powered analysis to predict potential network outages</div>
-          </div>
-          <button onclick="runPredictiveAnalysis()" id="predictive-button" style="padding:10px 20px;background:linear-gradient(135deg,#FF6B35,#FFB74D);border:none;border-radius:8px;color:rgba(0,0,0,0.87);font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-            Run Analysis
-          </button>
-        </div>
-
-        <div id="predictive-results" style="display:none">
-          <div id="predictive-loading" style="display:none;padding:40px;text-align:center">
-            <div style="width:40px;height:40px;border:3px solid rgba(255,107,53,0.3);border-top-color:#FF6B35;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto"></div>
-            <div style="margin-top:12px;color:var(--foreground-muted)">Analyzing network trends...</div>
-          </div>
-
-          <div id="predictive-content" style="display:none">
-            <div id="predictive-risk" style="padding:20px;border-radius:12px;margin-bottom:20px;text-align:center">
-              <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,0.6);margin-bottom:8px">Overall Risk Level</div>
-              <div id="predictive-risk-level" style="font-size:32px;font-weight:700">--</div>
-              <div id="predictive-risk-score" style="font-size:14px;color:rgba(255,255,255,0.6);margin-top:4px">Risk Score: --</div>
-            </div>
-
-            <div id="predictive-categories" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px">
-              <div class="pred-category" data-category="uplink" style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid rgba(255,255,255,0.2)">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="m4.93 10.93 1.41 1.41"/><path d="M2 18h2"/><path d="M20 18h2"/><path d="m19.07 10.93-1.41 1.41"/><path d="M22 22H2"/><path d="m8 22 4-10 4 10"/></svg>
-                  <span style="font-weight:600;font-size:12px">Uplink Health</span>
-                </div>
-                <div id="pred-uplink-status" style="font-size:11px;color:rgba(255,255,255,0.6)">Checking...</div>
-              </div>
-              <div class="pred-category" data-category="rf" style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid rgba(255,255,255,0.2)">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
-                  <span style="font-weight:600;font-size:12px">RF Congestion</span>
-                </div>
-                <div id="pred-rf-status" style="font-size:11px;color:rgba(255,255,255,0.6)">Checking...</div>
-              </div>
-              <div class="pred-category" data-category="poe" style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid rgba(255,255,255,0.2)">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-                  <span style="font-weight:600;font-size:12px">PoE Budget</span>
-                </div>
-                <div id="pred-poe-status" style="font-size:11px;color:rgba(255,255,255,0.6)">Checking...</div>
-              </div>
-              <div class="pred-category" data-category="hardware" style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid rgba(255,255,255,0.2)">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
-                  <span style="font-weight:600;font-size:12px">Hardware Aging</span>
-                </div>
-                <div id="pred-hardware-status" style="font-size:11px;color:rgba(255,255,255,0.6)">Checking...</div>
-              </div>
-            </div>
-
-            <div id="predictive-predictions" style="margin-bottom:20px"></div>
-            <div id="predictive-recommendations" style="margin-bottom:16px"></div>
-            <div id="predictive-metrics" style="display:flex;gap:12px;flex-wrap:wrap"></div>
-          </div>
-        </div>
-      </div>
-
       <!-- Roaming Tab Content -->
-      <div id="panel-roaming" class="ai-panel" style="margin-top:20px;display:none">
+      <div id="panel-roaming" class="ai-panel" style="margin-top:20px">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
           <div>
             <div style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.87)">Roaming Path Tracking</div>
@@ -3299,9 +3231,8 @@ app.get(UI_ROUTE, (_req, res) => {
     // AI Network Intelligence Tab Switching
     function switchAnalysisTab(tab) {
       // Update tab buttons
-      const tabs = ['predictive', 'roaming', 'telemetry', 'radar'];
+      const tabs = ['roaming', 'telemetry', 'radar'];
       const colors = {
-        predictive: { active: 'linear-gradient(135deg,#FF6B35,#FFB74D)', inactive: 'rgba(255,107,53,0.15)', border: 'rgba(255,107,53,0.3)', text: '#FF6B35', activeText: 'rgba(0,0,0,0.87)' },
         roaming: { active: 'linear-gradient(135deg,#00BCD4,#009688)', inactive: 'rgba(0,188,212,0.15)', border: 'rgba(0,188,212,0.3)', text: '#00BCD4', activeText: 'rgba(0,0,0,0.87)' },
         telemetry: { active: 'linear-gradient(135deg,#2196F3,#03A9F4)', inactive: 'rgba(33,150,243,0.15)', border: 'rgba(33,150,243,0.3)', text: '#2196F3', activeText: 'rgba(255,255,255,0.95)' },
         radar: { active: 'linear-gradient(135deg,#4CAF50,#8BC34A)', inactive: 'rgba(76,175,80,0.15)', border: 'rgba(76,175,80,0.3)', text: '#4CAF50', activeText: 'rgba(0,0,0,0.87)' }
