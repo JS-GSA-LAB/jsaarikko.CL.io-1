@@ -3017,10 +3017,6 @@ app.get(UI_ROUTE, (_req, res) => {
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
           Health Radar
         </button>
-        <button onclick="switchAnalysisTab('predictive')" id="tab-predictive" class="ai-tab" style="padding:10px 20px;background:rgba(255,152,0,0.15);border:1px solid rgba(255,152,0,0.3);border-radius:8px;color:#FF9800;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          Predictive
-        </button>
       </div>
 
       <!-- Roaming Tab Content -->
@@ -3274,79 +3270,6 @@ app.get(UI_ROUTE, (_req, res) => {
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Predictive Tab Content -->
-      <div id="panel-predictive" class="ai-panel" style="margin-top:20px;display:none">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
-          <div>
-            <div style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.87)">Predictive Failure Detection</div>
-            <div style="font-size:12px;color:rgba(255,255,255,0.5)">AI forecasts risk of outage/flapping within 30-120 minutes</div>
-          </div>
-          <button onclick="runPredictiveAnalysis()" id="predictive-button" style="padding:10px 20px;background:linear-gradient(135deg,#FF9800,#F57C00);border:none;border-radius:8px;color:rgba(0,0,0,0.87);font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            Analyze
-          </button>
-        </div>
-
-        <div id="predictive-results" style="display:none">
-          <div id="predictive-loading" style="display:none;padding:40px;text-align:center">
-            <div style="width:40px;height:40px;border:3px solid rgba(255,152,0,0.3);border-top-color:#FF9800;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto"></div>
-            <div style="margin-top:12px;color:var(--foreground-muted)">Analyzing device health signals...</div>
-          </div>
-
-          <div id="predictive-content" style="display:none">
-            <!-- Risk Level Display -->
-            <div id="predictive-risk" style="padding:20px;border-radius:12px;margin-bottom:20px;background:linear-gradient(135deg,rgba(255,152,0,0.2),rgba(245,124,0,0.1))">
-              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px">
-                <div>
-                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,0.6);margin-bottom:4px">Outage Risk Level</div>
-                  <div style="display:flex;align-items:baseline;gap:12px">
-                    <span id="predictive-risk-level" style="font-size:36px;font-weight:700;color:#FF9800">--</span>
-                    <span id="predictive-risk-score" style="font-size:14px;color:rgba(255,255,255,0.6)">Risk Score: --/100</span>
-                  </div>
-                </div>
-                <div style="font-size:12px;color:rgba(255,255,255,0.5);max-width:300px">
-                  <strong style="color:#FF9800">Signals monitored:</strong> Reboots, event bursts, uplink instability, rising retries, auth/DHCP failures
-                </div>
-              </div>
-            </div>
-
-            <!-- Signal Categories -->
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px" id="predictive-metrics">
-              <div style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center;border-left:3px solid #f44336">
-                <div style="font-size:20px;font-weight:700;color:#f44336" id="metric-reboots">--</div>
-                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Recent Reboots</div>
-              </div>
-              <div style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center;border-left:3px solid #ff9800">
-                <div style="font-size:20px;font-weight:700;color:#ff9800" id="metric-events">--</div>
-                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Event Bursts</div>
-              </div>
-              <div style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center;border-left:3px solid #2196f3">
-                <div style="font-size:20px;font-weight:700;color:#2196f3" id="metric-uplink">--</div>
-                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Uplink Issues</div>
-              </div>
-              <div style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center;border-left:3px solid #9c27b0">
-                <div style="font-size:20px;font-weight:700;color:#9c27b0" id="metric-retries">--</div>
-                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">High Retries</div>
-              </div>
-              <div style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center;border-left:3px solid #00bcd4">
-                <div style="font-size:20px;font-weight:700;color:#00bcd4" id="metric-auth">--</div>
-                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Auth Failures</div>
-              </div>
-              <div style="padding:14px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center;border-left:3px solid #4caf50">
-                <div style="font-size:20px;font-weight:700;color:#4caf50" id="metric-dhcp">--</div>
-                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">DHCP Failures</div>
-              </div>
-            </div>
-
-            <!-- At-Risk Devices -->
-            <div id="predictive-predictions" style="margin-bottom:16px"></div>
-
-            <!-- Recommendations -->
-            <div id="predictive-recommendations"></div>
           </div>
         </div>
       </div>
@@ -3608,12 +3531,11 @@ app.get(UI_ROUTE, (_req, res) => {
     // AI Network Intelligence Tab Switching
     function switchAnalysisTab(tab) {
       // Update tab buttons
-      const tabs = ['roaming', 'telemetry', 'radar', 'predictive'];
+      const tabs = ['roaming', 'telemetry', 'radar'];
       const colors = {
         roaming: { active: 'linear-gradient(135deg,#00BCD4,#009688)', inactive: 'rgba(0,188,212,0.15)', border: 'rgba(0,188,212,0.3)', text: '#00BCD4', activeText: 'rgba(0,0,0,0.87)' },
         telemetry: { active: 'linear-gradient(135deg,#2196F3,#03A9F4)', inactive: 'rgba(33,150,243,0.15)', border: 'rgba(33,150,243,0.3)', text: '#2196F3', activeText: 'rgba(255,255,255,0.95)' },
-        radar: { active: 'linear-gradient(135deg,#4CAF50,#8BC34A)', inactive: 'rgba(76,175,80,0.15)', border: 'rgba(76,175,80,0.3)', text: '#4CAF50', activeText: 'rgba(0,0,0,0.87)' },
-        predictive: { active: 'linear-gradient(135deg,#FF9800,#F57C00)', inactive: 'rgba(255,152,0,0.15)', border: 'rgba(255,152,0,0.3)', text: '#FF9800', activeText: 'rgba(0,0,0,0.87)' }
+        radar: { active: 'linear-gradient(135deg,#4CAF50,#8BC34A)', inactive: 'rgba(76,175,80,0.15)', border: 'rgba(76,175,80,0.3)', text: '#4CAF50', activeText: 'rgba(0,0,0,0.87)' }
       };
 
       tabs.forEach(t => {
