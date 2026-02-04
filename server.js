@@ -1809,6 +1809,373 @@ app.get("/api/network/health-radar", async (req, res) => {
 });
 
 // ===========================================
+// PREDICTIVE FAILURE DETECTION API
+// ===========================================
+const PREDICTIVE_TIMESPAN_S = 3600; // 1 hour lookback for pattern detection
+
+app.get("/api/predictive/failure-detection", async (req, res) => {
+  try {
+    const orgs = await merakiFetch("/organizations");
+    if (!orgs || orgs.length === 0) {
+      return res.status(500).json({ error: "No organizations found" });
+    }
+
+    const risks = [];
+    const deviceHealth = {};
+    const eventPatterns = {};
+
+    for (const org of orgs) {
+      const orgId = org.id;
+      const orgName = org.name;
+
+      // Get all device statuses
+      let statuses = [];
+      try {
+        statuses = await merakiFetch(`/organizations/${orgId}/devices/statuses?perPage=1000`);
+      } catch (e) {
+        console.warn(`Failed to get statuses for org ${orgName}:`, e.message);
+        continue;
+      }
+
+      // Get networks for event fetching
+      let networks = [];
+      try {
+        networks = await merakiFetch(`/organizations/${orgId}/networks?perPage=1000`);
+      } catch (e) {
+        console.warn(`Failed to get networks for org ${orgName}:`, e.message);
+      }
+
+      // Analyze device statuses for alerting/offline patterns
+      for (const device of (statuses || [])) {
+        const deviceKey = device.serial || device.mac;
+        const deviceType = device.productType ||
+          ((device.model || "").startsWith("MR") || (device.model || "").startsWith("CW") ? "wireless" :
+           (device.model || "").startsWith("MS") ? "switch" :
+           (device.model || "").startsWith("MX") || (device.model || "").startsWith("Z") ? "appliance" : "unknown");
+
+        deviceHealth[deviceKey] = {
+          name: device.name || device.mac,
+          model: device.model,
+          serial: device.serial,
+          status: device.status,
+          type: deviceType,
+          org: orgName,
+          networkId: device.networkId,
+          lastReportedAt: device.lastReportedAt
+        };
+
+        // Flag devices in alerting state
+        if (device.status === "alerting") {
+          risks.push({
+            type: "device_alerting",
+            severity: "high",
+            probability: 75,
+            timeframe: "30-60 minutes",
+            device: device.name || device.mac,
+            serial: device.serial,
+            model: device.model,
+            deviceType: deviceType,
+            org: orgName,
+            signal: "Device in alerting state",
+            detail: `${device.name || device.mac} is currently alerting - may indicate imminent failure`,
+            recommendation: "Check device logs and connectivity immediately"
+          });
+        }
+
+        // Flag offline devices
+        if (device.status === "offline") {
+          risks.push({
+            type: "device_offline",
+            severity: "critical",
+            probability: 95,
+            timeframe: "Immediate",
+            device: device.name || device.mac,
+            serial: device.serial,
+            model: device.model,
+            deviceType: deviceType,
+            org: orgName,
+            signal: "Device offline",
+            detail: `${device.name || device.mac} is currently offline`,
+            recommendation: "Verify power and network connectivity"
+          });
+        }
+      }
+
+      // Get WAN uplink loss/latency for MX devices
+      try {
+        const mxDevices = (statuses || []).filter(d =>
+          d.productType === "appliance" || (d.model || "").startsWith("MX") || (d.model || "").startsWith("Z")
+        );
+
+        if (mxDevices.length > 0) {
+          const uplinkData = await merakiFetch(`/organizations/${orgId}/devices/uplinksLossAndLatency?timespan=300`);
+          const mxSerials = new Set(mxDevices.map(d => d.serial).filter(Boolean));
+
+          for (const uplink of (uplinkData || [])) {
+            if (!mxSerials.has(uplink.serial)) continue;
+
+            const ts = uplink.timeSeries || [];
+            let maxLoss = 0, maxLatency = 0, lossSpikes = 0, latencySpikes = 0;
+
+            for (const t of ts) {
+              const loss = Number(t.lossPercent || 0);
+              const lat = Number(t.latencyMs || 0);
+              maxLoss = Math.max(maxLoss, loss);
+              maxLatency = Math.max(maxLatency, lat);
+              if (loss > 5) lossSpikes++;
+              if (lat > 100) latencySpikes++;
+            }
+
+            const device = mxDevices.find(d => d.serial === uplink.serial);
+            const deviceName = device?.name || uplink.serial;
+
+            // High packet loss indicates uplink instability
+            if (maxLoss > 10 || lossSpikes >= 3) {
+              risks.push({
+                type: "uplink_instability",
+                severity: maxLoss > 25 ? "critical" : "high",
+                probability: Math.min(40 + maxLoss * 2, 90),
+                timeframe: "30-90 minutes",
+                device: deviceName,
+                serial: uplink.serial,
+                model: device?.model,
+                deviceType: "appliance",
+                org: orgName,
+                signal: "Uplink packet loss",
+                detail: `Max loss: ${maxLoss.toFixed(1)}%, ${lossSpikes} loss spikes in last 5 min`,
+                recommendation: "Check ISP connection, cables, and upstream equipment"
+              });
+            }
+
+            // High latency indicates potential WAN issues
+            if (maxLatency > 150 || latencySpikes >= 3) {
+              risks.push({
+                type: "uplink_latency",
+                severity: maxLatency > 300 ? "high" : "medium",
+                probability: Math.min(35 + latencySpikes * 10, 80),
+                timeframe: "60-120 minutes",
+                device: deviceName,
+                serial: uplink.serial,
+                model: device?.model,
+                deviceType: "appliance",
+                org: orgName,
+                signal: "High WAN latency",
+                detail: `Max latency: ${maxLatency.toFixed(0)}ms, ${latencySpikes} latency spikes`,
+                recommendation: "Monitor ISP performance, check for congestion"
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`Failed to get uplink data for org ${orgName}:`, e.message);
+      }
+
+      // Analyze events for each network
+      for (const network of networks) {
+        const networkId = network.id;
+        const networkName = network.name;
+
+        try {
+          // Get recent events
+          const t0 = new Date(Date.now() - PREDICTIVE_TIMESPAN_S * 1000).toISOString();
+          const events = await merakiFetch(`/networks/${networkId}/events?perPage=1000&startingAfter=${encodeURIComponent(t0)}`);
+
+          if (!events || !events.events) continue;
+
+          const eventList = events.events || [];
+          const deviceEvents = {};
+          const eventTypes = {};
+
+          // Count events by device and type
+          for (const evt of eventList) {
+            const deviceSerial = evt.deviceSerial || evt.clientMac || "unknown";
+            const eventType = evt.type || "unknown";
+
+            if (!deviceEvents[deviceSerial]) deviceEvents[deviceSerial] = [];
+            deviceEvents[deviceSerial].push(evt);
+
+            if (!eventTypes[eventType]) eventTypes[eventType] = 0;
+            eventTypes[eventType]++;
+          }
+
+          // Detect event bursts (abnormal event volume per device)
+          for (const [serial, devEvents] of Object.entries(deviceEvents)) {
+            const deviceInfo = deviceHealth[serial] || { name: serial, model: "Unknown" };
+
+            // More than 20 events in an hour is suspicious
+            if (devEvents.length > 20) {
+              risks.push({
+                type: "event_burst",
+                severity: devEvents.length > 50 ? "high" : "medium",
+                probability: Math.min(50 + devEvents.length, 85),
+                timeframe: "60-120 minutes",
+                device: deviceInfo.name,
+                serial: serial,
+                model: deviceInfo.model,
+                deviceType: deviceInfo.type || "unknown",
+                org: orgName,
+                network: networkName,
+                signal: "Event burst detected",
+                detail: `${devEvents.length} events in last hour - abnormal activity`,
+                recommendation: "Investigate device logs for root cause"
+              });
+            }
+
+            // Check for reboot events
+            const rebootEvents = devEvents.filter(e =>
+              (e.type || "").toLowerCase().includes("reboot") ||
+              (e.type || "").toLowerCase().includes("restart") ||
+              (e.description || "").toLowerCase().includes("reboot")
+            );
+
+            if (rebootEvents.length > 0) {
+              risks.push({
+                type: "device_rebooting",
+                severity: rebootEvents.length > 2 ? "critical" : "high",
+                probability: 70 + rebootEvents.length * 10,
+                timeframe: "30-60 minutes",
+                device: deviceInfo.name,
+                serial: serial,
+                model: deviceInfo.model,
+                deviceType: deviceInfo.type || "unknown",
+                org: orgName,
+                network: networkName,
+                signal: "Device rebooting",
+                detail: `${rebootEvents.length} reboot event(s) detected - device instability`,
+                recommendation: "Check power supply, firmware, and hardware health"
+              });
+            }
+          }
+
+          // Check for authentication failures
+          const authFailures = eventList.filter(e =>
+            (e.type || "").toLowerCase().includes("auth") &&
+            ((e.type || "").toLowerCase().includes("fail") || (e.type || "").toLowerCase().includes("reject"))
+          );
+
+          if (authFailures.length > 10) {
+            risks.push({
+              type: "auth_failures",
+              severity: authFailures.length > 30 ? "high" : "medium",
+              probability: Math.min(45 + authFailures.length, 80),
+              timeframe: "60-120 minutes",
+              device: networkName,
+              deviceType: "network",
+              org: orgName,
+              network: networkName,
+              signal: "Rising auth failures",
+              detail: `${authFailures.length} authentication failures in last hour`,
+              recommendation: "Check RADIUS server, credentials, or rogue client activity"
+            });
+          }
+
+          // Check for DHCP failures
+          const dhcpFailures = eventList.filter(e =>
+            (e.type || "").toLowerCase().includes("dhcp") &&
+            ((e.type || "").toLowerCase().includes("fail") || (e.type || "").toLowerCase().includes("timeout") || (e.type || "").toLowerCase().includes("no_lease"))
+          );
+
+          if (dhcpFailures.length > 5) {
+            risks.push({
+              type: "dhcp_failures",
+              severity: dhcpFailures.length > 20 ? "high" : "medium",
+              probability: Math.min(50 + dhcpFailures.length * 2, 85),
+              timeframe: "30-90 minutes",
+              device: networkName,
+              deviceType: "network",
+              org: orgName,
+              network: networkName,
+              signal: "DHCP failures rising",
+              detail: `${dhcpFailures.length} DHCP failures in last hour`,
+              recommendation: "Check DHCP server capacity, scope exhaustion, or network segmentation"
+            });
+          }
+
+          // Check for wireless connection failures (retries)
+          const wirelessFailures = eventList.filter(e =>
+            (e.type || "").toLowerCase().includes("disassoc") ||
+            (e.type || "").toLowerCase().includes("deauth") ||
+            ((e.type || "").toLowerCase().includes("association") && (e.type || "").toLowerCase().includes("fail"))
+          );
+
+          if (wirelessFailures.length > 15) {
+            risks.push({
+              type: "wireless_instability",
+              severity: wirelessFailures.length > 40 ? "high" : "medium",
+              probability: Math.min(40 + wirelessFailures.length, 80),
+              timeframe: "60-120 minutes",
+              device: networkName,
+              deviceType: "network",
+              org: orgName,
+              network: networkName,
+              signal: "Rising wireless retries/failures",
+              detail: `${wirelessFailures.length} disassoc/deauth events in last hour`,
+              recommendation: "Check RF environment, channel utilization, and client compatibility"
+            });
+          }
+
+        } catch (e) {
+          console.warn(`Failed to analyze events for network ${networkName}:`, e.message);
+        }
+      }
+    }
+
+    // Sort risks by severity and probability
+    const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+    risks.sort((a, b) => {
+      const sevDiff = (severityOrder[a.severity] || 4) - (severityOrder[b.severity] || 4);
+      if (sevDiff !== 0) return sevDiff;
+      return (b.probability || 0) - (a.probability || 0);
+    });
+
+    // Calculate summary
+    const summary = {
+      totalRisks: risks.length,
+      critical: risks.filter(r => r.severity === "critical").length,
+      high: risks.filter(r => r.severity === "high").length,
+      medium: risks.filter(r => r.severity === "medium").length,
+      low: risks.filter(r => r.severity === "low").length,
+      byType: {}
+    };
+
+    for (const r of risks) {
+      summary.byType[r.type] = (summary.byType[r.type] || 0) + 1;
+    }
+
+    // Overall risk score (0-100, lower is better)
+    const riskScore = Math.min(100,
+      summary.critical * 25 +
+      summary.high * 15 +
+      summary.medium * 5 +
+      summary.low * 2
+    );
+
+    res.json({
+      ts: Date.now(),
+      lookbackSeconds: PREDICTIVE_TIMESPAN_S,
+      riskScore,
+      riskLevel: riskScore >= 75 ? "critical" : riskScore >= 50 ? "high" : riskScore >= 25 ? "medium" : "low",
+      summary,
+      risks: risks.slice(0, 50), // Limit to top 50 risks
+      signals: {
+        reboots: summary.byType.device_rebooting || 0,
+        eventBursts: summary.byType.event_burst || 0,
+        uplinkIssues: (summary.byType.uplink_instability || 0) + (summary.byType.uplink_latency || 0),
+        authFailures: summary.byType.auth_failures || 0,
+        dhcpFailures: summary.byType.dhcp_failures || 0,
+        wirelessIssues: summary.byType.wireless_instability || 0,
+        offlineDevices: summary.byType.device_offline || 0,
+        alertingDevices: summary.byType.device_alerting || 0
+      }
+    });
+
+  } catch (err) {
+    console.error("Predictive failure detection error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===========================================
 // XIQ API: List Devices
 app.get("/api/xiq/devices", async (req, res) => {
   try {
@@ -2306,7 +2673,7 @@ app.get(UI_ROUTE, (_req, res) => {
         <h2>AI Network Intelligence</h2>
         <span style="margin-left:auto;padding:4px 10px;background:linear-gradient(135deg,#9C27B0,#673AB7);border-radius:12px;font-size:10px;font-weight:600;color:rgba(255,255,255,0.95);text-transform:uppercase">AI-Powered</span>
       </div>
-      <div class="muted">Roaming optimization, switch telemetry, and health insights in one unified view</div>
+      <div class="muted">Roaming optimization, switch telemetry, health insights, and predictive failure detection</div>
 
       <!-- Tab Navigation -->
       <div id="ai-analysis-tabs" style="display:flex;gap:8px;margin-top:16px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:12px">
@@ -2321,6 +2688,10 @@ app.get(UI_ROUTE, (_req, res) => {
         <button onclick="switchAnalysisTab('radar')" id="tab-radar" class="ai-tab" style="padding:10px 20px;background:rgba(76,175,80,0.15);border:1px solid rgba(76,175,80,0.3);border-radius:8px;color:#4CAF50;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
           Health Radar
+        </button>
+        <button onclick="switchAnalysisTab('predictive')" id="tab-predictive" class="ai-tab" style="padding:10px 20px;background:rgba(255,87,34,0.15);border:1px solid rgba(255,87,34,0.3);border-radius:8px;color:#FF5722;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Predictive
         </button>
       </div>
 
@@ -2573,6 +2944,113 @@ app.get(UI_ROUTE, (_req, res) => {
                   <div style="font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:8px">Metrics Detail</div>
                   <div id="radar-kpi-details" style="line-height:1.8">—</div>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Predictive Failure Detection Tab Content -->
+      <div id="panel-predictive" class="ai-panel" style="margin-top:20px;display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+          <div>
+            <div style="font-size:16px;font-weight:600;color:rgba(255,255,255,0.87)">Predictive Failure Detection</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.5)">AI forecasts risk of outage/flapping within 30-120 minutes</div>
+          </div>
+          <button onclick="runPredictiveAnalysis()" id="predictive-button" style="padding:10px 20px;background:linear-gradient(135deg,#FF5722,#E64A19);border:none;border-radius:8px;color:rgba(255,255,255,0.95);font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Analyze Risks
+          </button>
+        </div>
+
+        <div id="predictive-results" style="display:none">
+          <div id="predictive-loading" style="display:none;padding:40px;text-align:center">
+            <div style="width:40px;height:40px;border:3px solid rgba(255,87,34,0.3);border-top-color:#FF5722;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto"></div>
+            <div style="margin-top:12px;color:var(--foreground-muted)">Analyzing failure patterns across all devices...</div>
+          </div>
+
+          <div id="predictive-content" style="display:none">
+            <!-- Risk Score -->
+            <div id="predictive-score-container" style="padding:20px;border-radius:12px;margin-bottom:20px;background:linear-gradient(135deg,rgba(255,87,34,0.2),rgba(230,74,25,0.1))">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px">
+                <div>
+                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,0.6);margin-bottom:4px">Risk Score</div>
+                  <div style="display:flex;align-items:baseline;gap:8px">
+                    <span id="predictive-score" style="font-size:40px;font-weight:700;color:#FF5722">--</span>
+                    <span id="predictive-level" style="font-size:16px;font-weight:600;padding:4px 12px;background:rgba(255,87,34,0.3);border-radius:8px;text-transform:uppercase">--</span>
+                  </div>
+                </div>
+                <div id="predictive-summary-text" style="flex:1;min-width:200px;max-width:400px;font-size:13px;color:rgba(255,255,255,0.7);padding-left:16px;border-left:2px solid rgba(255,255,255,0.1)">--</div>
+              </div>
+            </div>
+
+            <!-- Signal Metrics -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:20px">
+              <div style="padding:14px;background:rgba(244,67,54,0.15);border-radius:8px;text-align:center">
+                <div style="font-size:22px;font-weight:700;color:#F44336" id="predictive-reboots">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Reboots</div>
+              </div>
+              <div style="padding:14px;background:rgba(255,152,0,0.15);border-radius:8px;text-align:center">
+                <div style="font-size:22px;font-weight:700;color:#FF9800" id="predictive-bursts">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Event Bursts</div>
+              </div>
+              <div style="padding:14px;background:rgba(156,39,176,0.15);border-radius:8px;text-align:center">
+                <div style="font-size:22px;font-weight:700;color:#9C27B0" id="predictive-uplink">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Uplink Issues</div>
+              </div>
+              <div style="padding:14px;background:rgba(33,150,243,0.15);border-radius:8px;text-align:center">
+                <div style="font-size:22px;font-weight:700;color:#2196F3" id="predictive-auth">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Auth Failures</div>
+              </div>
+              <div style="padding:14px;background:rgba(0,188,212,0.15);border-radius:8px;text-align:center">
+                <div style="font-size:22px;font-weight:700;color:#00BCD4" id="predictive-dhcp">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">DHCP Failures</div>
+              </div>
+              <div style="padding:14px;background:rgba(76,175,80,0.15);border-radius:8px;text-align:center">
+                <div style="font-size:22px;font-weight:700;color:#4CAF50" id="predictive-wireless">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Wireless Issues</div>
+              </div>
+              <div style="padding:14px;background:rgba(96,125,139,0.15);border-radius:8px;text-align:center">
+                <div style="font-size:22px;font-weight:700;color:#607D8B" id="predictive-offline">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Offline</div>
+              </div>
+              <div style="padding:14px;background:rgba(255,183,77,0.15);border-radius:8px;text-align:center">
+                <div style="font-size:22px;font-weight:700;color:var(--warning)" id="predictive-alerting">--</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:4px">Alerting</div>
+              </div>
+            </div>
+
+            <!-- Risk Items -->
+            <div id="predictive-risks-container" style="margin-bottom:20px">
+              <div style="font-weight:600;font-size:13px;color:rgba(255,255,255,0.87);margin-bottom:10px;display:flex;align-items:center;gap:8px">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF5722" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                Predicted Failure Risks
+              </div>
+              <div id="predictive-risks-list" style="max-height:400px;overflow-y:auto"><div class="muted">No risks detected</div></div>
+            </div>
+
+            <!-- Device Type Summary -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+              <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:14px">
+                <div style="font-weight:600;font-size:13px;color:rgba(255,255,255,0.87);margin-bottom:10px;display:flex;align-items:center;gap:8px">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00BCD4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+                  AP Risks
+                </div>
+                <div id="predictive-ap-risks" style="font-size:12px;color:rgba(255,255,255,0.6)">--</div>
+              </div>
+              <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:14px">
+                <div style="font-weight:600;font-size:13px;color:rgba(255,255,255,0.87);margin-bottom:10px;display:flex;align-items:center;gap:8px">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2196F3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+                  Switch Risks
+                </div>
+                <div id="predictive-switch-risks" style="font-size:12px;color:rgba(255,255,255,0.6)">--</div>
+              </div>
+              <div style="background:rgba(255,255,255,0.03);border-radius:8px;padding:14px">
+                <div style="font-weight:600;font-size:13px;color:rgba(255,255,255,0.87);margin-bottom:10px;display:flex;align-items:center;gap:8px">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF6B35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="6" y1="10" x2="6" y2="14"/><line x1="10" y1="10" x2="10" y2="14"/><line x1="14" y1="10" x2="14" y2="14"/><line x1="18" y1="10" x2="18" y2="14"/></svg>
+                  MX/Appliance Risks
+                </div>
+                <div id="predictive-mx-risks" style="font-size:12px;color:rgba(255,255,255,0.6)">--</div>
               </div>
             </div>
           </div>
@@ -2836,11 +3314,12 @@ app.get(UI_ROUTE, (_req, res) => {
     // AI Network Intelligence Tab Switching
     function switchAnalysisTab(tab) {
       // Update tab buttons
-      const tabs = ['roaming', 'telemetry', 'radar'];
+      const tabs = ['roaming', 'telemetry', 'radar', 'predictive'];
       const colors = {
         roaming: { active: 'linear-gradient(135deg,#00BCD4,#009688)', inactive: 'rgba(0,188,212,0.15)', border: 'rgba(0,188,212,0.3)', text: '#00BCD4', activeText: 'rgba(0,0,0,0.87)' },
         telemetry: { active: 'linear-gradient(135deg,#2196F3,#03A9F4)', inactive: 'rgba(33,150,243,0.15)', border: 'rgba(33,150,243,0.3)', text: '#2196F3', activeText: 'rgba(255,255,255,0.95)' },
-        radar: { active: 'linear-gradient(135deg,#4CAF50,#8BC34A)', inactive: 'rgba(76,175,80,0.15)', border: 'rgba(76,175,80,0.3)', text: '#4CAF50', activeText: 'rgba(0,0,0,0.87)' }
+        radar: { active: 'linear-gradient(135deg,#4CAF50,#8BC34A)', inactive: 'rgba(76,175,80,0.15)', border: 'rgba(76,175,80,0.3)', text: '#4CAF50', activeText: 'rgba(0,0,0,0.87)' },
+        predictive: { active: 'linear-gradient(135deg,#FF5722,#E64A19)', inactive: 'rgba(255,87,34,0.15)', border: 'rgba(255,87,34,0.3)', text: '#FF5722', activeText: 'rgba(255,255,255,0.95)' }
       };
 
       tabs.forEach(t => {
@@ -3396,6 +3875,167 @@ app.get(UI_ROUTE, (_req, res) => {
       // Reset button
       button.disabled = false;
       button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Analyze';
+    }
+
+    // ===========================================
+    // PREDICTIVE FAILURE DETECTION FUNCTIONS
+    // ===========================================
+    async function runPredictiveAnalysis() {
+      const resultsDiv = document.getElementById('predictive-results');
+      const loadingDiv = document.getElementById('predictive-loading');
+      const contentDiv = document.getElementById('predictive-content');
+      const button = document.getElementById('predictive-button');
+
+      // Show loading state
+      resultsDiv.style.display = 'block';
+      loadingDiv.style.display = 'block';
+      contentDiv.style.display = 'none';
+      button.disabled = true;
+      button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Analyzing...';
+
+      try {
+        const res = await fetchWithTimeout('/api/predictive/failure-detection', {}, 60000);
+        const data = await res.json();
+
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        // Hide loading, show content
+        loadingDiv.style.display = 'none';
+        contentDiv.style.display = 'block';
+
+        // Update risk score
+        const riskScore = data.riskScore || 0;
+        const riskLevel = data.riskLevel || 'low';
+        document.getElementById('predictive-score').textContent = riskScore;
+        document.getElementById('predictive-score').style.color = riskScore >= 75 ? '#F44336' : riskScore >= 50 ? '#FF9800' : riskScore >= 25 ? '#FFC107' : '#4CAF50';
+
+        const levelEl = document.getElementById('predictive-level');
+        levelEl.textContent = riskLevel;
+        levelEl.style.background = riskLevel === 'critical' ? 'rgba(244,67,54,0.3)' :
+                                   riskLevel === 'high' ? 'rgba(255,152,0,0.3)' :
+                                   riskLevel === 'medium' ? 'rgba(255,193,7,0.3)' : 'rgba(76,175,80,0.3)';
+        levelEl.style.color = riskLevel === 'critical' ? '#F44336' :
+                              riskLevel === 'high' ? '#FF9800' :
+                              riskLevel === 'medium' ? '#FFC107' : '#4CAF50';
+
+        // Update score container color
+        const scoreContainer = document.getElementById('predictive-score-container');
+        scoreContainer.style.background = riskLevel === 'critical' ? 'linear-gradient(135deg,rgba(244,67,54,0.2),rgba(211,47,47,0.1))' :
+                                          riskLevel === 'high' ? 'linear-gradient(135deg,rgba(255,152,0,0.2),rgba(245,124,0,0.1))' :
+                                          riskLevel === 'medium' ? 'linear-gradient(135deg,rgba(255,193,7,0.2),rgba(255,160,0,0.1))' :
+                                          'linear-gradient(135deg,rgba(76,175,80,0.2),rgba(56,142,60,0.1))';
+
+        // Update summary
+        const summary = data.summary || {};
+        const summaryText = document.getElementById('predictive-summary-text');
+        if (summary.totalRisks === 0) {
+          summaryText.textContent = 'No failure risks detected. All monitored devices are operating normally.';
+        } else {
+          summaryText.textContent = summary.totalRisks + ' potential risk' + (summary.totalRisks > 1 ? 's' : '') + ' detected: ' +
+            (summary.critical > 0 ? summary.critical + ' critical, ' : '') +
+            (summary.high > 0 ? summary.high + ' high, ' : '') +
+            (summary.medium > 0 ? summary.medium + ' medium' : '') +
+            '. AI predicts possible outages within 30-120 minutes if unaddressed.';
+        }
+
+        // Update signal metrics
+        const signals = data.signals || {};
+        document.getElementById('predictive-reboots').textContent = signals.reboots || 0;
+        document.getElementById('predictive-bursts').textContent = signals.eventBursts || 0;
+        document.getElementById('predictive-uplink').textContent = signals.uplinkIssues || 0;
+        document.getElementById('predictive-auth').textContent = signals.authFailures || 0;
+        document.getElementById('predictive-dhcp').textContent = signals.dhcpFailures || 0;
+        document.getElementById('predictive-wireless').textContent = signals.wirelessIssues || 0;
+        document.getElementById('predictive-offline').textContent = signals.offlineDevices || 0;
+        document.getElementById('predictive-alerting').textContent = signals.alertingDevices || 0;
+
+        // Render risk items
+        const risksList = document.getElementById('predictive-risks-list');
+        const risks = data.risks || [];
+        if (risks.length > 0) {
+          risksList.innerHTML = risks.slice(0, 20).map(risk => {
+            const severityColors = {
+              critical: { bg: 'rgba(244,67,54,0.15)', border: '#F44336', text: '#F44336' },
+              high: { bg: 'rgba(255,152,0,0.15)', border: '#FF9800', text: '#FF9800' },
+              medium: { bg: 'rgba(255,193,7,0.15)', border: '#FFC107', text: '#FFC107' },
+              low: { bg: 'rgba(76,175,80,0.15)', border: '#4CAF50', text: '#4CAF50' }
+            };
+            const colors = severityColors[risk.severity] || severityColors.medium;
+
+            const typeIcons = {
+              device_rebooting: '🔄',
+              device_alerting: '⚠️',
+              device_offline: '🔴',
+              event_burst: '📊',
+              uplink_instability: '📡',
+              uplink_latency: '⏱️',
+              auth_failures: '🔐',
+              dhcp_failures: '🌐',
+              wireless_instability: '📶'
+            };
+            const icon = typeIcons[risk.type] || '⚡';
+
+            return '<div style="padding:12px 14px;margin:8px 0;background:' + colors.bg + ';border-left:3px solid ' + colors.border + ';border-radius:8px">' +
+              '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">' +
+              '<div style="display:flex;align-items:center;gap:8px">' +
+              '<span style="font-size:16px">' + icon + '</span>' +
+              '<div>' +
+              '<div style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.87)">' + (risk.device || 'Unknown Device') + '</div>' +
+              '<div style="font-size:11px;color:rgba(255,255,255,0.5)">' + (risk.org || '') + (risk.network ? ' · ' + risk.network : '') + '</div>' +
+              '</div></div>' +
+              '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+              '<span style="padding:2px 8px;background:' + colors.border + ';border-radius:10px;font-size:10px;color:rgba(0,0,0,0.87);text-transform:uppercase;font-weight:600">' + risk.severity + '</span>' +
+              '<span style="padding:2px 8px;background:rgba(255,255,255,0.1);border-radius:10px;font-size:10px;color:rgba(255,255,255,0.7)">' + (risk.probability || 0) + '% probability</span>' +
+              '</div></div>' +
+              '<div style="font-size:12px;color:' + colors.text + ';font-weight:500;margin-bottom:4px">' + (risk.signal || '') + '</div>' +
+              '<div style="font-size:12px;color:rgba(255,255,255,0.7);margin-bottom:8px">' + (risk.detail || '') + '</div>' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+              '<div style="font-size:11px;color:rgba(255,255,255,0.5)">Timeframe: <strong>' + (risk.timeframe || 'Unknown') + '</strong></div>' +
+              '<div style="font-size:11px;padding:6px 10px;background:rgba(0,0,0,0.2);border-radius:6px;color:rgba(255,255,255,0.8)"><strong>Action:</strong> ' + (risk.recommendation || 'Monitor closely') + '</div>' +
+              '</div></div>';
+          }).join('');
+
+          if (risks.length > 20) {
+            risksList.innerHTML += '<div style="padding:12px;text-align:center;color:rgba(255,255,255,0.5);font-size:12px">...and ' + (risks.length - 20) + ' more risks</div>';
+          }
+        } else {
+          risksList.innerHTML = '<div style="padding:30px;text-align:center;background:rgba(76,175,80,0.1);border-radius:8px;color:#4CAF50">' +
+            '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:12px"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' +
+            '<div style="font-size:14px;font-weight:600">All Clear!</div>' +
+            '<div style="font-size:12px;margin-top:4px">No failure risks detected across all monitored devices</div></div>';
+        }
+
+        // Update device type summaries
+        const apRisks = risks.filter(r => r.deviceType === 'wireless');
+        const switchRisks = risks.filter(r => r.deviceType === 'switch');
+        const mxRisks = risks.filter(r => r.deviceType === 'appliance');
+
+        document.getElementById('predictive-ap-risks').innerHTML = apRisks.length > 0 ?
+          apRisks.slice(0, 3).map(r => '<div style="margin:4px 0;padding:6px 8px;background:rgba(255,255,255,0.05);border-radius:4px"><span style="color:rgba(255,255,255,0.8)">' + r.device + '</span> - <span style="color:' + (r.severity === 'critical' ? '#F44336' : r.severity === 'high' ? '#FF9800' : '#FFC107') + '">' + r.signal + '</span></div>').join('') +
+          (apRisks.length > 3 ? '<div style="color:rgba(255,255,255,0.4);font-size:11px;margin-top:4px">+' + (apRisks.length - 3) + ' more</div>' : '') :
+          '<div style="color:#4CAF50">No AP risks detected</div>';
+
+        document.getElementById('predictive-switch-risks').innerHTML = switchRisks.length > 0 ?
+          switchRisks.slice(0, 3).map(r => '<div style="margin:4px 0;padding:6px 8px;background:rgba(255,255,255,0.05);border-radius:4px"><span style="color:rgba(255,255,255,0.8)">' + r.device + '</span> - <span style="color:' + (r.severity === 'critical' ? '#F44336' : r.severity === 'high' ? '#FF9800' : '#FFC107') + '">' + r.signal + '</span></div>').join('') +
+          (switchRisks.length > 3 ? '<div style="color:rgba(255,255,255,0.4);font-size:11px;margin-top:4px">+' + (switchRisks.length - 3) + ' more</div>' : '') :
+          '<div style="color:#4CAF50">No switch risks detected</div>';
+
+        document.getElementById('predictive-mx-risks').innerHTML = mxRisks.length > 0 ?
+          mxRisks.slice(0, 3).map(r => '<div style="margin:4px 0;padding:6px 8px;background:rgba(255,255,255,0.05);border-radius:4px"><span style="color:rgba(255,255,255,0.8)">' + r.device + '</span> - <span style="color:' + (r.severity === 'critical' ? '#F44336' : r.severity === 'high' ? '#FF9800' : '#FFC107') + '">' + r.signal + '</span></div>').join('') +
+          (mxRisks.length > 3 ? '<div style="color:rgba(255,255,255,0.4);font-size:11px;margin-top:4px">+' + (mxRisks.length - 3) + ' more</div>' : '') :
+          '<div style="color:#4CAF50">No appliance risks detected</div>';
+
+      } catch (err) {
+        loadingDiv.style.display = 'none';
+        contentDiv.style.display = 'block';
+        document.getElementById('predictive-risks-list').innerHTML = '<div style="color:var(--destructive);padding:12px">Error: ' + err.message + '</div>';
+      }
+
+      // Reset button
+      button.disabled = false;
+      button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Analyze Risks';
     }
 
     // Load networks for radar on tab switch
