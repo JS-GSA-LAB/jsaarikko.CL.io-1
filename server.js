@@ -2790,6 +2790,7 @@ app.get("/api/topology/map", async (req, res) => {
       nodes: [],
       edges: [],
       networks: [],
+      clients: [],
       summary: {
         totalDevices: 0,
         appliances: 0,
@@ -2797,7 +2798,8 @@ app.get("/api/topology/map", async (req, res) => {
         aps: 0,
         online: 0,
         offline: 0,
-        alerting: 0
+        alerting: 0,
+        wirelessClients: 0
       }
     };
 
@@ -3003,6 +3005,51 @@ app.get("/api/topology/map", async (req, res) => {
           }
         } catch (e) {
           // Per-device LLDP fetch failed
+        }
+      }
+    }
+
+    // Fetch wireless clients if requested (limit to first 20 for performance)
+    const includeClients = req.query.includeClients === 'true';
+    if (includeClients) {
+      for (const org of orgs) {
+        try {
+          const networks = await merakiFetch(`/organizations/${org.id}/networks?perPage=100`);
+          const targetNets = networkId
+            ? networks.filter(n => n.id === networkId)
+            : networks.slice(0, 5);
+
+          for (const network of targetNets) {
+            if (!network.productTypes || !network.productTypes.includes('wireless')) continue;
+
+            try {
+              const clients = await merakiFetch(`/networks/${network.id}/clients?timespan=300&perPage=20`);
+              for (const client of (clients || []).slice(0, 10)) {
+                if (client.status !== 'Online') continue;
+
+                topology.clients.push({
+                  id: client.id || client.mac,
+                  mac: client.mac,
+                  description: client.description || client.dhcpHostname || 'Unknown Device',
+                  ip: client.ip,
+                  vlan: client.vlan,
+                  ssid: client.ssid,
+                  apSerial: client.recentDeviceSerial,
+                  apName: client.recentDeviceName,
+                  rssi: client.rssi,
+                  status: client.status,
+                  deviceType: client.os && client.os.includes('Phone') ? 'Phone' : 'Laptop',
+                  networkId: network.id,
+                  networkName: network.name
+                });
+                topology.summary.wirelessClients++;
+              }
+            } catch (e) {
+              // Clients fetch failed
+            }
+          }
+        } catch (e) {
+          // Networks fetch failed
         }
       }
     }
@@ -5093,6 +5140,10 @@ app.get(UI_ROUTE, (_req, res) => {
           <select id="topology-network-select" style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--foreground);margin-right:8px">
             <option value="">All Networks</option>
           </select>
+          <label style="display:flex;align-items:center;gap:6px;margin-right:12px;cursor:pointer">
+            <input type="checkbox" id="topology-include-clients" style="width:16px;height:16px;accent-color:var(--primary)">
+            <span style="font-size:13px;color:var(--foreground-muted)">Show Clients</span>
+          </label>
           <button class="header-btn" onclick="loadTopologyMap()">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
             Refresh
@@ -5167,18 +5218,18 @@ app.get(UI_ROUTE, (_req, res) => {
             <span style="font-size:13px;color:var(--foreground-muted)">CDP Link</span>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
-            <div style="width:24px;height:3px;background:var(--border);border-radius:2px;border:1px dashed var(--foreground-muted)"></div>
-            <span style="font-size:13px;color:var(--foreground-muted)">Unknown</span>
+            <div style="width:24px;height:3px;background:#22c55e;border-radius:2px;border:1px dashed #22c55e"></div>
+            <span style="font-size:13px;color:var(--foreground-muted)">Wireless</span>
           </div>
         </div>
 
         <!-- Topology Canvas -->
-        <div id="topology-canvas" style="background:var(--surface);border-radius:12px;border:1px solid var(--border);min-height:500px;position:relative;overflow:hidden">
+        <div id="topology-canvas" style="background:#0f172a;border-radius:12px;border:1px solid var(--border);min-height:600px;position:relative;overflow:auto">
           <div id="topology-loading" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--foreground-muted)">
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.4;margin-bottom:16px"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
             <div style="font-size:14px">Click Refresh to load topology</div>
           </div>
-          <svg id="topology-svg" width="100%" height="500" style="display:none"></svg>
+          <svg id="topology-svg" width="100%" height="600" style="display:none;background:#0f172a"></svg>
         </div>
 
         <!-- Link Details Panel -->
@@ -6133,9 +6184,15 @@ app.get(UI_ROUTE, (_req, res) => {
 
       try {
         const selectedNetwork = networkSelect.value;
+        const includeClientsCheckbox = document.getElementById('topology-include-clients');
+        const includeClients = includeClientsCheckbox ? includeClientsCheckbox.checked : false;
+
         let url = '/api/topology/map';
         if (selectedNetwork) {
           url = '/api/topology/network/' + selectedNetwork;
+        }
+        if (includeClients) {
+          url += (url.includes('?') ? '&' : '?') + 'includeClients=true';
         }
 
         const res = await fetch(url);
@@ -6177,12 +6234,17 @@ app.get(UI_ROUTE, (_req, res) => {
     function renderTopology(data) {
       const svg = document.getElementById('topology-svg');
       const container = document.getElementById('topology-canvas');
-      const width = container.clientWidth || 800;
-      const height = 500;
+      const width = container.clientWidth || 900;
+      const height = 600;
 
       svg.setAttribute('width', width);
       svg.setAttribute('height', height);
       svg.innerHTML = '';
+
+      // Add defs for gradients and filters
+      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      defs.innerHTML = '<filter id="glow"><feGaussianBlur stdDeviation="2" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>';
+      svg.appendChild(defs);
 
       // Filter out network container nodes, only show devices
       const deviceNodes = data.nodes ? data.nodes.filter(n => n.type !== 'network') : [];
@@ -6192,201 +6254,313 @@ app.get(UI_ROUTE, (_req, res) => {
         return;
       }
 
-      // Map numeric tiers to names: 1=core, 2=distribution, 3=access, 4=endpoint
-      const tierNames = { 1: 'core', 2: 'distribution', 3: 'access', 4: 'endpoint' };
+      // Device icon SVG paths
+      const deviceIcons = {
+        switch: '<rect x="-30" y="-10" width="60" height="20" rx="3" fill="#1e293b" stroke="#475569" stroke-width="1"/><rect x="-26" y="-6" width="4" height="4" rx="1" fill="#22c55e"/><rect x="-18" y="-6" width="4" height="4" rx="1" fill="#22c55e"/><rect x="-10" y="-6" width="4" height="4" rx="1" fill="#22c55e"/><rect x="-2" y="-6" width="4" height="4" rx="1" fill="#22c55e"/><rect x="6" y="-6" width="4" height="4" rx="1" fill="#475569"/><rect x="14" y="-6" width="4" height="4" rx="1" fill="#475569"/><rect x="22" y="-6" width="4" height="4" rx="1" fill="#475569"/>',
+        router: '<rect x="-25" y="-18" width="50" height="36" rx="4" fill="#1e293b" stroke="#475569" stroke-width="1"/><rect x="-20" y="-13" width="40" height="8" rx="2" fill="#0f172a"/><circle cx="-14" cy="-9" r="2" fill="#22c55e"/><circle cx="-6" cy="-9" r="2" fill="#22c55e"/><rect x="-20" y="0" width="40" height="8" rx="2" fill="#0f172a"/><circle cx="-14" cy="4" r="2" fill="#3b82f6"/><circle cx="-6" cy="4" r="2" fill="#475569"/>',
+        ap: '<circle cx="0" cy="0" r="22" fill="#1e293b" stroke="#475569" stroke-width="2"/><circle cx="0" cy="0" r="14" fill="none" stroke="#3b82f6" stroke-width="1" opacity="0.5"/><circle cx="0" cy="0" r="8" fill="none" stroke="#3b82f6" stroke-width="1" opacity="0.3"/><circle cx="0" cy="0" r="5" fill="#3b82f6"/>',
+        laptop: '<rect x="-22" y="-14" width="44" height="28" rx="2" fill="#1e293b" stroke="#475569" stroke-width="1"/><rect x="-18" y="-10" width="36" height="20" rx="1" fill="#0ea5e9" opacity="0.3"/><path d="M-28 14 L-22 14 L-22 16 L22 16 L22 14 L28 14 L28 18 L-28 18 Z" fill="#334155"/>',
+        phone: '<rect x="-12" y="-20" width="24" height="40" rx="3" fill="#1e293b" stroke="#475569" stroke-width="1"/><rect x="-9" y="-16" width="18" height="28" rx="1" fill="#0ea5e9" opacity="0.3"/><circle cx="0" cy="16" r="3" fill="#334155"/>',
+        camera: '<rect x="-20" y="-12" width="40" height="24" rx="4" fill="#1e293b" stroke="#475569" stroke-width="1"/><circle cx="-5" cy="0" r="8" fill="#0f172a" stroke="#f59e0b" stroke-width="2"/><circle cx="-5" cy="0" r="4" fill="#f59e0b" opacity="0.5"/><rect x="8" y="-6" width="8" height="4" rx="1" fill="#334155"/>',
+        wireless: '<path d="M-8 8 Q0 -4 8 8" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round"/><path d="M-12 4 Q0 -10 12 4" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" opacity="0.7"/><path d="M-16 0 Q0 -16 16 0" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" opacity="0.4"/>'
+      };
 
-      // Group nodes by tier
-      const tiers = { core: [], distribution: [], access: [], endpoint: [] };
-      deviceNodes.forEach(node => {
-        const tierName = tierNames[node.tier] || 'access';
-        tiers[tierName].push(node);
+      // Build hierarchy: Switches -> connected devices -> wireless clients
+      const switches = deviceNodes.filter(n => n.type === 'switch' || (n.model && n.model.startsWith('MS')));
+      const routers = deviceNodes.filter(n => n.type === 'appliance' || (n.model && (n.model.startsWith('MX') || n.model.startsWith('Z'))));
+      const aps = deviceNodes.filter(n => n.type === 'ap' || n.type === 'wireless' || (n.model && (n.model.startsWith('MR') || n.model.startsWith('CW'))));
+      const cameras = deviceNodes.filter(n => (n.model && n.model.startsWith('MV')));
+      const others = deviceNodes.filter(n => !switches.includes(n) && !routers.includes(n) && !aps.includes(n) && !cameras.includes(n));
+
+      // Position calculation - horizontal tree layout
+      const nodePositions = {};
+      const startX = 80;
+      const tierSpacing = 180;
+      let currentY = 60;
+      const verticalSpacing = 90;
+
+      // Build connection map from edges
+      const connectionMap = {};
+      if (data.edges) {
+        data.edges.forEach(edge => {
+          if (edge.type === 'network-device') return;
+          if (!connectionMap[edge.from]) connectionMap[edge.from] = [];
+          if (!connectionMap[edge.to]) connectionMap[edge.to] = [];
+          connectionMap[edge.from].push({ target: edge.to, edge });
+          connectionMap[edge.to].push({ target: edge.from, edge });
+        });
+      }
+
+      // Position switches (leftmost)
+      switches.forEach((sw, i) => {
+        nodePositions[sw.id] = {
+          x: startX,
+          y: currentY + (i * verticalSpacing * 2),
+          node: sw,
+          deviceType: 'switch'
+        };
       });
 
-      // Calculate positions for each tier
-      const tierY = { core: 60, distribution: 160, access: 280, endpoint: 400 };
-      const nodePositions = {};
+      // Position routers and APs connected to switches
+      let tier2Y = 40;
+      const tier2Devices = [...routers, ...aps, ...cameras, ...others];
 
-      Object.keys(tiers).forEach(tier => {
-        const nodes = tiers[tier];
-        if (nodes.length === 0) return;
+      tier2Devices.forEach((device, i) => {
+        // Find if connected to a switch
+        let connectedSwitch = null;
+        const connections = connectionMap[device.id] || connectionMap[device.serial] || [];
+        for (const conn of connections) {
+          const sw = switches.find(s => s.id === conn.target || s.serial === conn.target);
+          if (sw) {
+            connectedSwitch = sw;
+            break;
+          }
+        }
 
-        const spacing = width / (nodes.length + 1);
-        nodes.forEach((node, i) => {
-          nodePositions[node.id] = {
-            x: spacing * (i + 1),
-            y: tierY[tier],
-            node: node
+        const baseY = connectedSwitch && nodePositions[connectedSwitch.id]
+          ? nodePositions[connectedSwitch.id].y
+          : tier2Y;
+
+        let deviceType = 'router';
+        if (device.type === 'ap' || device.type === 'wireless' || (device.model && (device.model.startsWith('MR') || device.model.startsWith('CW')))) {
+          deviceType = 'ap';
+        } else if (device.model && device.model.startsWith('MV')) {
+          deviceType = 'camera';
+        } else if (device.type === 'appliance' || (device.model && (device.model.startsWith('MX') || device.model.startsWith('Z')))) {
+          deviceType = 'router';
+        } else {
+          deviceType = 'laptop';
+        }
+
+        nodePositions[device.id] = {
+          x: startX + tierSpacing,
+          y: baseY + (i * verticalSpacing) - ((tier2Devices.length - 1) * verticalSpacing / 2),
+          node: device,
+          deviceType: deviceType
+        };
+        tier2Y += verticalSpacing;
+      });
+
+      // If no switches, arrange all devices horizontally
+      if (switches.length === 0) {
+        let yPos = 100;
+        tier2Devices.forEach((device, i) => {
+          let deviceType = 'router';
+          if (device.type === 'ap' || device.type === 'wireless' || (device.model && (device.model.startsWith('MR') || device.model.startsWith('CW')))) {
+            deviceType = 'ap';
+          } else if (device.model && device.model.startsWith('MV')) {
+            deviceType = 'camera';
+          }
+          nodePositions[device.id] = {
+            x: startX + (i % 3) * tierSpacing,
+            y: yPos + Math.floor(i / 3) * verticalSpacing,
+            node: device,
+            deviceType: deviceType
           };
         });
+      }
+
+      // Add wireless clients if available
+      const wirelessClients = data.clients || [];
+      wirelessClients.forEach((client, i) => {
+        // Find connected AP
+        const connectedAp = aps.find(ap => ap.serial === client.apSerial || ap.id === client.apSerial);
+        const basePos = connectedAp && nodePositions[connectedAp.id]
+          ? nodePositions[connectedAp.id]
+          : { x: startX + tierSpacing, y: 200 };
+
+        nodePositions['client-' + client.id] = {
+          x: basePos.x + tierSpacing,
+          y: basePos.y + (i * 70) - 35,
+          node: client,
+          deviceType: client.deviceType === 'Phone' ? 'phone' : 'laptop',
+          isClient: true,
+          signalStrength: client.rssi ? Math.min(100, Math.max(0, 100 + client.rssi)) : null
+        };
       });
 
-      // Draw edges first (behind nodes)
+      // Calculate required height
+      const allYPositions = Object.values(nodePositions).map(p => p.y);
+      const minY = Math.min(...allYPositions, 50);
+      const maxY = Math.max(...allYPositions, 100);
+      const requiredHeight = Math.max(500, maxY - minY + 150);
+      svg.setAttribute('height', requiredHeight);
+
+      // Offset all positions if needed
+      const yOffset = minY < 50 ? 50 - minY : 0;
+      Object.values(nodePositions).forEach(pos => pos.y += yOffset);
+
+      // Draw curved connections
       const edgesGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
       const lldpEdges = [];
 
       if (data.edges) {
         data.edges.forEach(edge => {
-          // Skip network-device edges (container relationships)
           if (edge.type === 'network-device') return;
 
-          // Track LLDP/CDP edges for the table
           if (edge.type === 'lldp' || edge.type === 'cdp') {
             lldpEdges.push(edge);
           }
 
-          const source = nodePositions[edge.from];
-          const target = nodePositions[edge.to];
+          const source = nodePositions[edge.from] || nodePositions[edge.to.replace ? edge.to : ''];
+          const target = nodePositions[edge.to] || nodePositions[edge.from.replace ? edge.from : ''];
           if (!source || !target) return;
 
-          // Different colors for LLDP vs CDP
-          let strokeColor = 'var(--border)';
-          let strokeWidth = '1';
-          let dashArray = '4,4';
+          // Curved bezier path
+          const dx = target.x - source.x;
+          const dy = target.y - source.y;
+          const cx1 = source.x + dx * 0.4;
+          const cy1 = source.y;
+          const cx2 = source.x + dx * 0.6;
+          const cy2 = target.y;
 
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', 'M ' + source.x + ' ' + source.y + ' C ' + cx1 + ' ' + cy1 + ', ' + cx2 + ' ' + cy2 + ', ' + target.x + ' ' + target.y);
+          path.setAttribute('fill', 'none');
+
+          // Color based on protocol
+          let strokeColor = '#475569';
           if (edge.type === 'lldp' || edge.protocol === 'LLDP') {
-            strokeColor = '#22c55e'; // Green for LLDP
-            strokeWidth = '2';
-            dashArray = '';
+            strokeColor = '#22c55e';
           } else if (edge.type === 'cdp' || edge.protocol === 'CDP') {
-            strokeColor = '#3b82f6'; // Blue for CDP
-            strokeWidth = '2';
-            dashArray = '';
+            strokeColor = '#3b82f6';
           }
 
-          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-          line.setAttribute('x1', source.x);
-          line.setAttribute('y1', source.y);
-          line.setAttribute('x2', target.x);
-          line.setAttribute('y2', target.y);
-          line.setAttribute('stroke', strokeColor);
-          line.setAttribute('stroke-width', strokeWidth);
-          if (dashArray) line.setAttribute('stroke-dasharray', dashArray);
-          line.style.cursor = 'pointer';
-          line.onclick = () => showLinkDetails(edge);
-          edgesGroup.appendChild(line);
+          path.setAttribute('stroke', strokeColor);
+          path.setAttribute('stroke-width', '2');
+          path.style.cursor = 'pointer';
+          path.onclick = () => showLinkDetails(edge);
+          edgesGroup.appendChild(path);
 
-          // Add port labels if available
+          // Port label at midpoint
           if (edge.fromPort || edge.toPort) {
             const midX = (source.x + target.x) / 2;
             const midY = (source.y + target.y) / 2;
 
-            // Background for better readability
-            const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            const labelText = (edge.fromPort || '?') + ' ↔ ' + (edge.toPort || '?');
-            bg.setAttribute('x', midX - 30);
-            bg.setAttribute('y', midY - 14);
-            bg.setAttribute('width', '60');
-            bg.setAttribute('height', '14');
-            bg.setAttribute('fill', 'var(--background)');
-            bg.setAttribute('rx', '3');
-            bg.setAttribute('opacity', '0.8');
-            edgesGroup.appendChild(bg);
+            const labelBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            labelBg.setAttribute('x', midX - 25);
+            labelBg.setAttribute('y', midY - 8);
+            labelBg.setAttribute('width', '50');
+            labelBg.setAttribute('height', '16');
+            labelBg.setAttribute('rx', '3');
+            labelBg.setAttribute('fill', '#0f172a');
+            labelBg.setAttribute('opacity', '0.9');
+            edgesGroup.appendChild(labelBg);
 
             const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             label.setAttribute('x', midX);
-            label.setAttribute('y', midY - 4);
+            label.setAttribute('y', midY + 4);
             label.setAttribute('text-anchor', 'middle');
             label.setAttribute('fill', strokeColor);
             label.setAttribute('font-size', '9');
-            label.setAttribute('font-weight', '500');
-            label.textContent = labelText;
+            label.textContent = (edge.fromPort || '') + '↔' + (edge.toPort || '');
             edgesGroup.appendChild(label);
           }
         });
       }
+
+      // Draw wireless client connections (dashed)
+      Object.entries(nodePositions).forEach(([id, pos]) => {
+        if (!pos.isClient) return;
+
+        // Find connected AP
+        const client = pos.node;
+        const apPos = Object.values(nodePositions).find(p =>
+          p.node && (p.node.serial === client.apSerial || p.node.id === client.apSerial)
+        );
+
+        if (apPos) {
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          const dx = pos.x - apPos.x;
+          const cx1 = apPos.x + dx * 0.5;
+          const cy1 = apPos.y;
+          const cx2 = apPos.x + dx * 0.5;
+          const cy2 = pos.y;
+
+          path.setAttribute('d', 'M ' + apPos.x + ' ' + apPos.y + ' C ' + cx1 + ' ' + cy1 + ', ' + cx2 + ' ' + cy2 + ', ' + pos.x + ' ' + pos.y);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', '#22c55e');
+          path.setAttribute('stroke-width', '2');
+          path.setAttribute('stroke-dasharray', '6,4');
+          edgesGroup.appendChild(path);
+        }
+      });
+
       svg.appendChild(edgesGroup);
 
       // Populate links table
       populateLinksTable(lldpEdges);
 
-      // Draw nodes
+      // Draw device nodes
       const nodesGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 
-      const typeColors = {
-        MX: 'linear-gradient(135deg,#6366f1,#8b5cf6)',
-        MS: 'linear-gradient(135deg,#3b82f6,#0ea5e9)',
-        MR: 'linear-gradient(135deg,#22c55e,#10b981)',
-        MV: 'linear-gradient(135deg,#f59e0b,#f97316)',
-        appliance: '#6366f1',
-        switch: '#3b82f6',
-        wireless: '#22c55e',
-        camera: '#f59e0b'
-      };
-
-      Object.values(nodePositions).forEach(pos => {
+      Object.entries(nodePositions).forEach(([id, pos]) => {
         const node = pos.node;
         const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         group.setAttribute('transform', 'translate(' + pos.x + ',' + pos.y + ')');
         group.style.cursor = 'pointer';
         group.onclick = () => showDeviceDetails(node);
 
-        // Determine color based on device type
-        let color = '#ec4899';
-        if (node.model) {
-          if (node.model.startsWith('MX')) color = '#6366f1';
-          else if (node.model.startsWith('MS')) color = '#3b82f6';
-          else if (node.model.startsWith('MR')) color = '#22c55e';
-          else if (node.model.startsWith('MV')) color = '#f59e0b';
-        } else if (node.type) {
-          color = typeColors[node.type] || '#ec4899';
+        // Draw device icon based on type
+        const iconType = pos.deviceType || 'router';
+        const iconG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        iconG.innerHTML = deviceIcons[iconType] || deviceIcons.router;
+        group.appendChild(iconG);
+
+        // Status glow for online devices
+        if (node.status === 'online') {
+          const glow = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          glow.setAttribute('r', '4');
+          glow.setAttribute('cx', iconType === 'switch' ? '26' : '20');
+          glow.setAttribute('cy', iconType === 'switch' ? '-6' : '-15');
+          glow.setAttribute('fill', '#22c55e');
+          glow.setAttribute('filter', 'url(#glow)');
+          group.appendChild(glow);
         }
 
-        // Background circle
-        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('r', '24');
-        circle.setAttribute('fill', color);
-        circle.setAttribute('opacity', node.status === 'online' ? '1' : '0.4');
-        group.appendChild(circle);
-
-        // Status indicator
-        const statusCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        statusCircle.setAttribute('cx', '16');
-        statusCircle.setAttribute('cy', '-16');
-        statusCircle.setAttribute('r', '6');
-        statusCircle.setAttribute('fill', node.status === 'online' ? '#22c55e' : node.status === 'alerting' ? '#f59e0b' : '#ef4444');
-        statusCircle.setAttribute('stroke', 'var(--background)');
-        statusCircle.setAttribute('stroke-width', '2');
-        group.appendChild(statusCircle);
-
-        // Device icon (simple representation)
-        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        icon.setAttribute('text-anchor', 'middle');
-        icon.setAttribute('dy', '5');
-        icon.setAttribute('fill', 'white');
-        icon.setAttribute('font-size', '12');
-        icon.setAttribute('font-weight', 'bold');
-        icon.textContent = node.model ? node.model.substring(0, 2) : (node.type ? node.type.substring(0, 2).toUpperCase() : '??');
-        group.appendChild(icon);
-
-        // Device name
+        // Device name label
         const nameLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        nameLabel.setAttribute('y', '40');
+        nameLabel.setAttribute('y', iconType === 'switch' ? '30' : '35');
         nameLabel.setAttribute('text-anchor', 'middle');
-        nameLabel.setAttribute('fill', 'var(--foreground)');
+        nameLabel.setAttribute('fill', '#e2e8f0');
         nameLabel.setAttribute('font-size', '11');
-        nameLabel.textContent = (node.label || node.name || node.serial || 'Unknown').substring(0, 15);
+        nameLabel.textContent = (node.label || node.name || node.description || node.serial || 'Unknown').substring(0, 18);
         group.appendChild(nameLabel);
+
+        // For APs, show channel info if available
+        if (iconType === 'ap' && node.channel) {
+          const channelLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          channelLabel.setAttribute('y', '-30');
+          channelLabel.setAttribute('text-anchor', 'middle');
+          channelLabel.setAttribute('fill', '#94a3b8');
+          channelLabel.setAttribute('font-size', '10');
+          channelLabel.textContent = node.channel;
+          group.appendChild(channelLabel);
+        }
+
+        // For wireless clients, show signal strength
+        if (pos.isClient && pos.signalStrength !== null) {
+          // Wireless signal icon
+          const signalG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+          signalG.setAttribute('transform', 'translate(30, -10)');
+          signalG.innerHTML = deviceIcons.wireless;
+          group.appendChild(signalG);
+
+          // Signal strength percentage
+          const signalLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          signalLabel.setAttribute('x', '55');
+          signalLabel.setAttribute('y', '-5');
+          signalLabel.setAttribute('fill', '#22c55e');
+          signalLabel.setAttribute('font-size', '12');
+          signalLabel.setAttribute('font-weight', 'bold');
+          signalLabel.textContent = pos.signalStrength + '%';
+          group.appendChild(signalLabel);
+        }
 
         nodesGroup.appendChild(group);
       });
 
       svg.appendChild(nodesGroup);
-
-      // Add tier labels
-      const tierLabels = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-      Object.entries(tierY).forEach(([tier, y]) => {
-        if (tiers[tier] && tiers[tier].length > 0) {
-          const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-          label.setAttribute('x', '20');
-          label.setAttribute('y', y + 5);
-          label.setAttribute('fill', 'var(--foreground-muted)');
-          label.setAttribute('font-size', '11');
-          label.setAttribute('font-weight', '500');
-          label.textContent = tier.charAt(0).toUpperCase() + tier.slice(1);
-          tierLabels.appendChild(label);
-        }
-      });
-      svg.appendChild(tierLabels);
     }
 
     function showDeviceDetails(node) {
