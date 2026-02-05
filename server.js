@@ -2456,7 +2456,7 @@ app.get(UI_ROUTE, (_req, res) => {
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
     }
-    .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px; }
+    .wrap { max-width: 1400px; margin: 0 auto; padding: 32px 40px; }
     .header {
       display: flex;
       align-items: center;
@@ -2514,8 +2514,10 @@ app.get(UI_ROUTE, (_req, res) => {
       line-height: 1.6;
     }
     .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
-    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-    @media (max-width: 600px) { .grid-2 { grid-template-columns: 1fr; } }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    @media (max-width: 1000px) { .grid-3 { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 700px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
     .pill {
       display: inline-flex;
       align-items: center;
