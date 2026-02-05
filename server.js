@@ -4571,7 +4571,7 @@ app.get(UI_ROUTE, (_req, res) => {
             </div>
             <span class="app-launcher-item-label">RCA</span>
           </a>
-          <a class="app-launcher-item" href="https://xiq-migration.up.railway.app/" target="_blank" rel="noopener">
+          <a class="app-launcher-item" href="https://xiq-migration.up.railway.app/" target="_blank" rel="noopener" onclick="closeAppLauncher()">
             <div class="app-launcher-item-icon" style="background:linear-gradient(135deg,#7c3aed,#2dd4bf)">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
             </div>
@@ -6070,10 +6070,12 @@ app.get(UI_ROUTE, (_req, res) => {
       btn.classList.remove('active');
     }
 
-    // Close app launcher when clicking outside
+    // Close app launcher when clicking outside (only if menu is open)
     document.addEventListener('click', (e) => {
+      const menu = document.getElementById('app-launcher-menu');
       const launcher = document.querySelector('.app-launcher');
-      if (launcher && !launcher.contains(e.target)) {
+      // Only act if menu is actually open and click is outside launcher
+      if (menu && menu.classList.contains('show') && launcher && !launcher.contains(e.target)) {
         closeAppLauncher();
       }
     });
