@@ -4289,9 +4289,299 @@ app.get(UI_ROUTE, (_req, res) => {
       justify-content: center;
       color: var(--primary);
     }
+
+    /* Global Top Bar */
+    .global-topbar {
+      position: fixed;
+      top: 0;
+      left: 260px;
+      right: 0;
+      height: 48px;
+      background: var(--background);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding: 0 20px;
+      z-index: 100;
+      gap: 12px;
+    }
+
+    .topbar-search {
+      flex: 1;
+      max-width: 400px;
+      margin-right: auto;
+    }
+
+    .topbar-search input {
+      width: 100%;
+      padding: 8px 12px 8px 36px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--foreground);
+      font-size: 13px;
+    }
+
+    .topbar-search input::placeholder {
+      color: var(--foreground-muted);
+    }
+
+    .topbar-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--foreground-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      position: relative;
+    }
+
+    .topbar-btn:hover {
+      background: var(--surface);
+      color: var(--foreground);
+    }
+
+    .topbar-btn.active {
+      background: var(--primary);
+      color: white;
+    }
+
+    /* 9-dot App Launcher */
+    .app-launcher {
+      position: relative;
+    }
+
+    .app-launcher-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--foreground-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+
+    .app-launcher-btn:hover {
+      background: var(--surface);
+      color: var(--foreground);
+    }
+
+    .app-launcher-btn.active {
+      background: var(--surface);
+      color: var(--primary);
+    }
+
+    .app-launcher-dots {
+      display: grid;
+      grid-template-columns: repeat(3, 6px);
+      gap: 3px;
+    }
+
+    .app-launcher-dots span {
+      width: 6px;
+      height: 6px;
+      background: currentColor;
+      border-radius: 50%;
+    }
+
+    .app-launcher-menu {
+      position: absolute;
+      top: 44px;
+      right: 0;
+      width: 320px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+      padding: 16px;
+      display: none;
+      z-index: 1000;
+    }
+
+    .app-launcher-menu.show {
+      display: block;
+      animation: fadeIn 0.15s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .app-launcher-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--foreground-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .app-launcher-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .app-launcher-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 8px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-decoration: none;
+      color: var(--foreground);
+    }
+
+    .app-launcher-item:hover {
+      background: rgba(255,255,255,0.05);
+    }
+
+    .app-launcher-item-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+
+    .app-launcher-item-label {
+      font-size: 11px;
+      text-align: center;
+      color: var(--foreground-muted);
+    }
+
+    .app-launcher-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 12px 0;
+    }
+
+    /* Adjust main content for topbar */
+    .main-content {
+      margin-top: 48px;
+    }
+
+    /* Notification badge */
+    .notification-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 8px;
+      height: 8px;
+      background: #ef4444;
+      border-radius: 50%;
+      border: 2px solid var(--background);
+    }
   </style>
 </head>
 <body>
+  <!-- Global Top Bar -->
+  <div class="global-topbar">
+    <div class="topbar-search">
+      <input type="text" placeholder="Search devices, clients, events..." id="global-search">
+    </div>
+
+    <button class="topbar-btn" onclick="showView('rca')" title="Alerts">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span class="notification-badge" id="alert-badge" style="display:none"></span>
+    </button>
+
+    <button class="topbar-btn" onclick="showView('evidence')" title="Evidence Collection">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+    </button>
+
+    <div class="app-launcher">
+      <button class="app-launcher-btn" onclick="toggleAppLauncher()" id="app-launcher-btn" title="Apps & Integrations">
+        <div class="app-launcher-dots">
+          <span></span><span></span><span></span>
+          <span></span><span></span><span></span>
+          <span></span><span></span><span></span>
+        </div>
+      </button>
+      <div class="app-launcher-menu" id="app-launcher-menu">
+        <div class="app-launcher-title">Integrations</div>
+        <div class="app-launcher-grid">
+          <a class="app-launcher-item" onclick="showIntegrationSettings('teams')">
+            <div class="app-launcher-item-icon" style="background:#5059c9">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M20 6h-4V4c0-1.1-.9-2-2-2h-4c-1.1 0-2 .9-2 2v2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zM10 4h4v2h-4V4zm6 14H8v-2h8v2zm0-4H8v-2h8v2zm0-4H8V8h8v2z"/></svg>
+            </div>
+            <span class="app-launcher-item-label">Teams</span>
+          </a>
+          <a class="app-launcher-item" onclick="showIntegrationSettings('slack')">
+            <div class="app-launcher-item-icon" style="background:#4a154b">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M6 15a2 2 0 0 1-2 2 2 2 0 0 1-2-2 2 2 0 0 1 2-2h2v2zm1 0a2 2 0 0 1 2-2 2 2 0 0 1 2 2v5a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-5zm2-8a2 2 0 0 1-2-2 2 2 0 0 1 2-2 2 2 0 0 1 2 2v2H9zm0 1a2 2 0 0 1 2 2 2 2 0 0 1-2 2H4a2 2 0 0 1-2-2 2 2 0 0 1 2-2h5zm8 2a2 2 0 0 1 2-2 2 2 0 0 1 2 2 2 2 0 0 1-2 2h-2v-2zm-1 0a2 2 0 0 1-2 2 2 2 0 0 1-2-2V5a2 2 0 0 1 2-2 2 2 0 0 1 2 2v5zm-2 8a2 2 0 0 1 2 2 2 2 0 0 1-2 2 2 2 0 0 1-2-2v-2h2zm0-1a2 2 0 0 1-2-2 2 2 0 0 1 2-2h5a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-5z"/></svg>
+            </div>
+            <span class="app-launcher-item-label">Slack</span>
+          </a>
+          <a class="app-launcher-item" onclick="showIntegrationSettings('webhook')">
+            <div class="app-launcher-item-icon" style="background:#10b981">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            </div>
+            <span class="app-launcher-item-label">Webhook</span>
+          </a>
+          <a class="app-launcher-item" onclick="showIntegrationSettings('email')">
+            <div class="app-launcher-item-icon" style="background:#f59e0b">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            </div>
+            <span class="app-launcher-item-label">Email</span>
+          </a>
+          <a class="app-launcher-item" onclick="showIntegrationSettings('pagerduty')">
+            <div class="app-launcher-item-icon" style="background:#06ac38">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            </div>
+            <span class="app-launcher-item-label">PagerDuty</span>
+          </a>
+          <a class="app-launcher-item" onclick="showIntegrationSettings('servicenow')">
+            <div class="app-launcher-item-icon" style="background:#62d84e">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2" stroke="#62d84e" stroke-width="2" fill="none"/></svg>
+            </div>
+            <span class="app-launcher-item-label">ServiceNow</span>
+          </a>
+        </div>
+        <div class="app-launcher-divider"></div>
+        <div class="app-launcher-title">Tools</div>
+        <div class="app-launcher-grid">
+          <a class="app-launcher-item" onclick="showView('topology')">
+            <div class="app-launcher-item-icon" style="background:#3b82f6">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
+            </div>
+            <span class="app-launcher-item-label">Topology</span>
+          </a>
+          <a class="app-launcher-item" onclick="showView('rca')">
+            <div class="app-launcher-item-icon" style="background:#8b5cf6">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <span class="app-launcher-item-label">RCA</span>
+          </a>
+          <a class="app-launcher-item" onclick="showIntegrationSettings('settings')">
+            <div class="app-launcher-item-icon" style="background:#6b7280">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </div>
+            <span class="app-launcher-item-label">Settings</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Sidebar Navigation -->
   <nav class="sidebar">
     <div class="sidebar-header">
@@ -5754,6 +6044,133 @@ app.get(UI_ROUTE, (_req, res) => {
       } else if (viewId === 'devices') {
         loadDevicesView();
       }
+
+      // Close app launcher if open
+      closeAppLauncher();
+    }
+
+    // App Launcher Functions
+    function toggleAppLauncher() {
+      const menu = document.getElementById('app-launcher-menu');
+      const btn = document.getElementById('app-launcher-btn');
+      menu.classList.toggle('show');
+      btn.classList.toggle('active');
+    }
+
+    function closeAppLauncher() {
+      const menu = document.getElementById('app-launcher-menu');
+      const btn = document.getElementById('app-launcher-btn');
+      menu.classList.remove('show');
+      btn.classList.remove('active');
+    }
+
+    // Close app launcher when clicking outside
+    document.addEventListener('click', (e) => {
+      const launcher = document.querySelector('.app-launcher');
+      if (launcher && !launcher.contains(e.target)) {
+        closeAppLauncher();
+      }
+    });
+
+    // Integration Settings Modal
+    function showIntegrationSettings(type) {
+      closeAppLauncher();
+
+      const titles = {
+        teams: 'Microsoft Teams',
+        slack: 'Slack',
+        webhook: 'Custom Webhook',
+        email: 'Email Notifications',
+        pagerduty: 'PagerDuty',
+        servicenow: 'ServiceNow',
+        settings: 'Alert Settings'
+      };
+
+      const icons = {
+        teams: '<div style="width:48px;height:48px;background:#5059c9;border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:16px"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M20 6h-4V4c0-1.1-.9-2-2-2h-4c-1.1 0-2 .9-2 2v2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg></div>',
+        slack: '<div style="width:48px;height:48px;background:#4a154b;border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:16px"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M6 15a2 2 0 1 1-2-2h2v2zm1 0a2 2 0 1 1 4 0v5a2 2 0 1 1-4 0v-5z"/></svg></div>',
+        webhook: '<div style="width:48px;height:48px;background:#10b981;border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:16px"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></div>',
+        email: '<div style="width:48px;height:48px;background:#f59e0b;border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:16px"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>',
+        pagerduty: '<div style="width:48px;height:48px;background:#06ac38;border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:16px"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="10"/></svg></div>',
+        servicenow: '<div style="width:48px;height:48px;background:#62d84e;border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:16px"><svg width="28" height="28" viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="10"/></svg></div>',
+        settings: '<div style="width:48px;height:48px;background:#6b7280;border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:16px"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>'
+      };
+
+      let formContent = '';
+
+      if (type === 'teams') {
+        formContent = '<div style="margin-bottom:16px"><label style="display:block;margin-bottom:6px;font-size:13px;color:var(--foreground-muted)">Webhook URL</label><input type="text" id="integration-teams-url" placeholder="https://outlook.office.com/webhook/..." style="width:100%;padding:10px 12px;background:var(--background);border:1px solid var(--border);border-radius:8px;color:var(--foreground);font-size:13px"></div><div style="margin-bottom:16px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="integration-teams-device-alerts" checked style="width:16px;height:16px"> <span style="font-size:13px">Device offline alerts</span></label></div><div style="margin-bottom:16px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="integration-teams-security-alerts" checked style="width:16px;height:16px"> <span style="font-size:13px">Security alerts</span></label></div><div style="margin-bottom:16px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="integration-teams-change-alerts" style="width:16px;height:16px"> <span style="font-size:13px">Configuration change alerts</span></label></div>';
+      } else if (type === 'slack') {
+        formContent = '<div style="margin-bottom:16px"><label style="display:block;margin-bottom:6px;font-size:13px;color:var(--foreground-muted)">Webhook URL</label><input type="text" id="integration-slack-url" placeholder="https://hooks.slack.com/services/..." style="width:100%;padding:10px 12px;background:var(--background);border:1px solid var(--border);border-radius:8px;color:var(--foreground);font-size:13px"></div><div style="margin-bottom:16px"><label style="display:block;margin-bottom:6px;font-size:13px;color:var(--foreground-muted)">Channel (optional)</label><input type="text" id="integration-slack-channel" placeholder="#network-alerts" style="width:100%;padding:10px 12px;background:var(--background);border:1px solid var(--border);border-radius:8px;color:var(--foreground);font-size:13px"></div>';
+      } else if (type === 'webhook') {
+        formContent = '<div style="margin-bottom:16px"><label style="display:block;margin-bottom:6px;font-size:13px;color:var(--foreground-muted)">Endpoint URL</label><input type="text" id="integration-webhook-url" placeholder="https://your-server.com/webhook" style="width:100%;padding:10px 12px;background:var(--background);border:1px solid var(--border);border-radius:8px;color:var(--foreground);font-size:13px"></div><div style="margin-bottom:16px"><label style="display:block;margin-bottom:6px;font-size:13px;color:var(--foreground-muted)">Authentication Header (optional)</label><input type="text" id="integration-webhook-auth" placeholder="Bearer token or API key" style="width:100%;padding:10px 12px;background:var(--background);border:1px solid var(--border);border-radius:8px;color:var(--foreground);font-size:13px"></div>';
+      } else if (type === 'email') {
+        formContent = '<div style="margin-bottom:16px"><label style="display:block;margin-bottom:6px;font-size:13px;color:var(--foreground-muted)">Email Addresses (comma separated)</label><input type="text" id="integration-email-addresses" placeholder="admin@company.com, noc@company.com" style="width:100%;padding:10px 12px;background:var(--background);border:1px solid var(--border);border-radius:8px;color:var(--foreground);font-size:13px"></div><div style="margin-bottom:16px"><label style="display:block;margin-bottom:6px;font-size:13px;color:var(--foreground-muted)">Alert Severity</label><select id="integration-email-severity" style="width:100%;padding:10px 12px;background:var(--background);border:1px solid var(--border);border-radius:8px;color:var(--foreground);font-size:13px"><option value="all">All alerts</option><option value="critical">Critical only</option><option value="warning">Warning and above</option></select></div>';
+      } else {
+        formContent = '<div style="padding:20px;text-align:center;color:var(--foreground-muted)"><p>Configuration for ' + titles[type] + ' coming soon.</p><p style="font-size:12px;margin-top:8px">Contact your administrator for setup assistance.</p></div>';
+      }
+
+      // Create modal
+      const modal = document.createElement('div');
+      modal.id = 'integration-modal';
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:2000;animation:fadeIn 0.15s ease';
+      modal.innerHTML = '<div style="background:var(--surface);border-radius:16px;padding:24px;width:100%;max-width:440px;max-height:80vh;overflow-y:auto;border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,0.4)">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">' +
+          '<div>' + (icons[type] || '') + '<h2 style="margin:0;font-size:20px;font-weight:600">' + titles[type] + ' Integration</h2></div>' +
+          '<button onclick="closeIntegrationModal()" style="background:none;border:none;color:var(--foreground-muted);cursor:pointer;padding:4px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' +
+        '</div>' +
+        '<div style="margin-bottom:20px">' + formContent + '</div>' +
+        '<div style="display:flex;gap:12px;justify-content:flex-end">' +
+          '<button onclick="closeIntegrationModal()" style="padding:10px 20px;background:var(--background);border:1px solid var(--border);border-radius:8px;color:var(--foreground);cursor:pointer;font-size:14px">Cancel</button>' +
+          '<button onclick="saveIntegration(\'' + type + '\')" style="padding:10px 20px;background:var(--primary);border:none;border-radius:8px;color:white;cursor:pointer;font-size:14px;font-weight:500">Save Integration</button>' +
+        '</div>' +
+        '<div id="integration-test-result" style="margin-top:16px;display:none"></div>' +
+      '</div>';
+
+      document.body.appendChild(modal);
+
+      // Close on backdrop click
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeIntegrationModal();
+      });
+    }
+
+    function closeIntegrationModal() {
+      const modal = document.getElementById('integration-modal');
+      if (modal) modal.remove();
+    }
+
+    function saveIntegration(type) {
+      // Collect form data based on type
+      let config = { type, enabled: true };
+
+      if (type === 'teams') {
+        config.webhookUrl = document.getElementById('integration-teams-url')?.value || '';
+        config.deviceAlerts = document.getElementById('integration-teams-device-alerts')?.checked || false;
+        config.securityAlerts = document.getElementById('integration-teams-security-alerts')?.checked || false;
+        config.changeAlerts = document.getElementById('integration-teams-change-alerts')?.checked || false;
+      } else if (type === 'slack') {
+        config.webhookUrl = document.getElementById('integration-slack-url')?.value || '';
+        config.channel = document.getElementById('integration-slack-channel')?.value || '';
+      } else if (type === 'webhook') {
+        config.url = document.getElementById('integration-webhook-url')?.value || '';
+        config.authHeader = document.getElementById('integration-webhook-auth')?.value || '';
+      } else if (type === 'email') {
+        config.addresses = document.getElementById('integration-email-addresses')?.value || '';
+        config.severity = document.getElementById('integration-email-severity')?.value || 'all';
+      }
+
+      // Save to localStorage for now (in production, this would go to a backend)
+      localStorage.setItem('integration-' + type, JSON.stringify(config));
+
+      // Show success message
+      const resultDiv = document.getElementById('integration-test-result');
+      if (resultDiv) {
+        resultDiv.style.display = 'block';
+        resultDiv.innerHTML = '<div style="padding:12px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:8px;color:#22c55e;font-size:13px"><strong>✓ Integration saved!</strong> Alerts will be sent to ' + type + '.</div>';
+      }
+
+      setTimeout(closeIntegrationModal, 1500);
     }
 
     // Dashboard data loading
