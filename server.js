@@ -2361,7 +2361,7 @@ app.get("/api/peplink/locations", async (req, res) => {
 // ===========================================
 // AI CHANGE RISK PREDICTION API
 // ===========================================
-app.post("/api/change-risk/analyze", async (req, res) => {
+app.post("/api/change-risk/analyze", express.json(), async (req, res) => {
   try {
     const {
       changeType = "ssid_update",  // ssid_update, firmware_upgrade, vlan_change, security_policy, rf_profile, qos_rules
