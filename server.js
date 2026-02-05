@@ -4436,6 +4436,10 @@ app.get(UI_ROUTE, (_req, res) => {
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
           App Traffic
         </button>
+        <button class="nav-item" onclick="showView('architecture')">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
+          Architecture
+        </button>
       </div>
       <div class="nav-section">
         <div class="nav-section-title">AI Intelligence</div>
@@ -5589,6 +5593,369 @@ app.get(UI_ROUTE, (_req, res) => {
       </div>
     </div>
 
+    <!-- Architecture View -->
+    <div id="view-architecture" class="view-panel">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">The 3.7 Billion Mile View</h1>
+          <div class="page-subtitle">Extreme Networks Platform Architecture</div>
+        </div>
+        <div class="header-actions">
+          <button class="header-btn" onclick="zoomArchitecture(1.2)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            Zoom In
+          </button>
+          <button class="header-btn" onclick="zoomArchitecture(0.8)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            Zoom Out
+          </button>
+          <button class="header-btn" onclick="resetArchitectureZoom()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            Reset
+          </button>
+        </div>
+      </div>
+      <div class="page-content" style="overflow:auto;padding:20px">
+        <div id="architecture-container" style="min-width:1400px;transform-origin:top left;transition:transform 0.3s ease">
+          <svg width="1400" height="900" viewBox="0 0 1400 900" style="font-family:system-ui,sans-serif">
+            <!-- Background -->
+            <rect width="1400" height="900" fill="#0d1117"/>
+
+            <!-- Title -->
+            <text x="20" y="35" fill="#7c3aed" font-size="24" font-weight="700">The 3.7 Billion Mile View</text>
+            <image href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 30'%3E%3Ctext x='0' y='22' fill='%237c3aed' font-size='16' font-weight='bold'%3EExtreme%3C/text%3E%3C/svg%3E" x="1280" y="10" width="100" height="30"/>
+
+            <!-- GDC US (Left) -->
+            <g transform="translate(30,60)">
+              <rect x="0" y="0" width="180" height="200" rx="8" fill="none" stroke="#7c3aed" stroke-width="2" stroke-dasharray="5,3"/>
+              <text x="90" y="-8" fill="#a78bfa" font-size="12" font-weight="600" text-anchor="middle">GDC (US0)</text>
+              <rect x="10" y="15" width="160" height="175" rx="6" fill="rgba(124,58,237,0.1)" stroke="#7c3aed" stroke-width="1"/>
+              <text x="90" y="8" fill="#c4b5fd" font-size="10" text-anchor="middle">GDC (US1)</text>
+              <text x="90" y="35" fill="#e9d5ff" font-size="11" text-anchor="middle">Auth & SSO</text>
+              <text x="90" y="55" fill="#e9d5ff" font-size="11" text-anchor="middle">License</text>
+              <text x="90" y="75" fill="#e9d5ff" font-size="11" text-anchor="middle">API Gateway</text>
+              <text x="90" y="95" fill="#e9d5ff" font-size="11" text-anchor="middle">Redirector</text>
+              <!-- Data Sync Arrow -->
+              <line x1="180" y1="50" x2="280" y2="50" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+              <text x="230" y="42" fill="#a78bfa" font-size="9" text-anchor="middle">Data Sync</text>
+              <text x="230" y="62" fill="#a78bfa" font-size="8" text-anchor="middle">License, Device, Customer</text>
+            </g>
+
+            <!-- Arrow Marker -->
+            <defs>
+              <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed"/>
+              </marker>
+              <marker id="arrowhead-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#3b82f6"/>
+              </marker>
+              <marker id="arrowhead-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#10b981"/>
+              </marker>
+            </defs>
+
+            <!-- IT Systems (Center Top) -->
+            <g transform="translate(520,60)">
+              <rect x="0" y="0" width="180" height="100" rx="8" fill="rgba(59,130,246,0.1)" stroke="#3b82f6" stroke-width="2"/>
+              <text x="90" y="-8" fill="#60a5fa" font-size="12" font-weight="600" text-anchor="middle">IT Systems</text>
+              <rect x="20" y="20" width="140" height="28" rx="4" fill="rgba(59,130,246,0.2)" stroke="#3b82f6"/>
+              <text x="90" y="38" fill="#93c5fd" font-size="11" text-anchor="middle">Gemalto</text>
+              <rect x="20" y="55" width="140" height="28" rx="4" fill="rgba(59,130,246,0.2)" stroke="#3b82f6"/>
+              <text x="90" y="73" fill="#93c5fd" font-size="11" text-anchor="middle">Salesforce</text>
+            </g>
+
+            <!-- GDC EU (Right) -->
+            <g transform="translate(1020,60)">
+              <rect x="0" y="0" width="180" height="200" rx="8" fill="none" stroke="#7c3aed" stroke-width="2" stroke-dasharray="5,3"/>
+              <text x="90" y="-8" fill="#a78bfa" font-size="12" font-weight="600" text-anchor="middle">GDC (EU0)</text>
+              <rect x="10" y="15" width="160" height="175" rx="6" fill="rgba(124,58,237,0.1)" stroke="#7c3aed" stroke-width="1"/>
+              <text x="90" y="8" fill="#c4b5fd" font-size="10" text-anchor="middle">GDC (EU1)</text>
+              <text x="90" y="35" fill="#e9d5ff" font-size="11" text-anchor="middle">Auth & SSO</text>
+              <text x="90" y="55" fill="#e9d5ff" font-size="11" text-anchor="middle">License</text>
+              <text x="90" y="75" fill="#e9d5ff" font-size="11" text-anchor="middle">API Gateway</text>
+              <text x="90" y="95" fill="#e9d5ff" font-size="11" text-anchor="middle">Redirector</text>
+              <!-- Data Sync Arrow from IT Systems -->
+              <line x1="0" y1="50" x2="-120" y2="50" stroke="#7c3aed" stroke-width="1.5"/>
+              <text x="-60" y="42" fill="#a78bfa" font-size="9" text-anchor="middle">Data Sync</text>
+            </g>
+
+            <!-- Data Hosting (Far Right) -->
+            <g transform="translate(1220,60)">
+              <text x="70" y="0" fill="#f59e0b" font-size="12" font-weight="600" text-anchor="middle">Data Hosting</text>
+              <rect x="20" y="15" width="100" height="40" rx="6" fill="rgba(255,153,0,0.15)" stroke="#f59e0b"/>
+              <text x="70" y="40" fill="#fbbf24" font-size="12" text-anchor="middle">AWS</text>
+              <rect x="20" y="65" width="100" height="40" rx="6" fill="rgba(0,120,212,0.15)" stroke="#0078d4"/>
+              <text x="70" y="90" fill="#60a5fa" font-size="12" text-anchor="middle">Azure</text>
+            </g>
+
+            <!-- API Gateway (Center) -->
+            <g transform="translate(420,180)">
+              <rect x="0" y="0" width="380" height="80" rx="8" fill="rgba(16,185,129,0.1)" stroke="#10b981" stroke-width="2"/>
+              <text x="190" y="20" fill="#34d399" font-size="12" font-weight="600" text-anchor="middle">API Gateway</text>
+              <g transform="translate(20,35)">
+                <rect x="0" y="0" width="50" height="30" rx="4" fill="rgba(16,185,129,0.2)" stroke="#10b981"/>
+                <text x="25" y="20" fill="#6ee7b7" font-size="9" text-anchor="middle">xAPI</text>
+              </g>
+              <g transform="translate(80,35)">
+                <rect x="0" y="0" width="40" height="30" rx="4" fill="rgba(16,185,129,0.2)" stroke="#10b981"/>
+                <text x="20" y="20" fill="#6ee7b7" font-size="9" text-anchor="middle">IAM</text>
+              </g>
+              <g transform="translate(130,35)">
+                <rect x="0" y="0" width="40" height="30" rx="4" fill="rgba(16,185,129,0.2)" stroke="#10b981"/>
+                <text x="20" y="20" fill="#6ee7b7" font-size="9" text-anchor="middle">API</text>
+              </g>
+              <g transform="translate(180,35)">
+                <rect x="0" y="0" width="40" height="30" rx="4" fill="rgba(16,185,129,0.2)" stroke="#10b981"/>
+                <text x="20" y="20" fill="#6ee7b7" font-size="9" text-anchor="middle">API</text>
+              </g>
+              <g transform="translate(230,35)">
+                <rect x="0" y="0" width="40" height="30" rx="4" fill="rgba(16,185,129,0.2)" stroke="#10b981"/>
+                <text x="20" y="20" fill="#6ee7b7" font-size="9" text-anchor="middle">API</text>
+              </g>
+              <g transform="translate(280,35)">
+                <rect x="0" y="0" width="40" height="30" rx="4" fill="rgba(16,185,129,0.2)" stroke="#10b981"/>
+                <text x="20" y="20" fill="#6ee7b7" font-size="9" text-anchor="middle">API</text>
+              </g>
+              <g transform="translate(330,35)">
+                <rect x="0" y="0" width="40" height="30" rx="4" fill="rgba(16,185,129,0.2)" stroke="#10b981"/>
+                <text x="20" y="20" fill="#6ee7b7" font-size="9" text-anchor="middle">API</text>
+              </g>
+            </g>
+
+            <!-- Load Balancers -->
+            <g transform="translate(250,200)">
+              <rect x="0" y="0" width="100" height="35" rx="6" fill="rgba(99,102,241,0.15)" stroke="#6366f1"/>
+              <text x="50" y="22" fill="#a5b4fc" font-size="10" text-anchor="middle">Load Balancer</text>
+            </g>
+            <g transform="translate(870,200)">
+              <rect x="0" y="0" width="100" height="35" rx="6" fill="rgba(99,102,241,0.15)" stroke="#6366f1"/>
+              <text x="50" y="22" fill="#a5b4fc" font-size="10" text-anchor="middle">Load Balancer</text>
+            </g>
+
+            <!-- RDC (Public/Private) -->
+            <g transform="translate(30,300)">
+              <rect x="0" y="0" width="280" height="280" rx="10" fill="rgba(236,72,153,0.08)" stroke="#ec4899" stroke-width="2"/>
+              <text x="140" y="-8" fill="#f472b6" font-size="13" font-weight="600" text-anchor="middle">RDC (Public/Private)</text>
+              <!-- Top Row -->
+              <g transform="translate(15,20)">
+                <rect x="0" y="0" width="55" height="30" rx="4" fill="#7c3aed" stroke="none"/>
+                <text x="27" y="20" fill="white" font-size="10" text-anchor="middle">XIQ</text>
+              </g>
+              <g transform="translate(80,20)">
+                <rect x="0" y="0" width="65" height="30" rx="4" fill="#3b82f6" stroke="none"/>
+                <text x="32" y="20" fill="white" font-size="10" text-anchor="middle">SDWAN</text>
+              </g>
+              <g transform="translate(155,20)">
+                <rect x="0" y="0" width="55" height="30" rx="4" fill="#06b6d4" stroke="none"/>
+                <text x="27" y="20" fill="white" font-size="10" text-anchor="middle">UZTNA</text>
+              </g>
+              <!-- Second Row -->
+              <g transform="translate(15,60)">
+                <rect x="0" y="0" width="80" height="28" rx="4" fill="rgba(124,58,237,0.2)" stroke="#7c3aed"/>
+                <text x="40" y="18" fill="#c4b5fd" font-size="9" text-anchor="middle">REST API</text>
+              </g>
+              <!-- Third Row -->
+              <g transform="translate(15,95)">
+                <rect x="0" y="0" width="50" height="25" rx="4" fill="rgba(59,130,246,0.2)" stroke="#3b82f6"/>
+                <text x="25" y="16" fill="#93c5fd" font-size="8" text-anchor="middle">IAM</text>
+              </g>
+              <g transform="translate(75,95)">
+                <rect x="0" y="0" width="70" height="25" rx="4" fill="rgba(59,130,246,0.2)" stroke="#3b82f6"/>
+                <text x="35" y="16" fill="#93c5fd" font-size="8" text-anchor="middle">Licensing</text>
+              </g>
+              <!-- Fourth Row -->
+              <g transform="translate(15,128)">
+                <rect x="0" y="0" width="80" height="25" rx="4" fill="rgba(245,158,11,0.2)" stroke="#f59e0b"/>
+                <text x="40" y="16" fill="#fcd34d" font-size="8" text-anchor="middle">Notification</text>
+              </g>
+              <g transform="translate(105,128)">
+                <rect x="0" y="0" width="50" height="25" rx="4" fill="rgba(16,185,129,0.2)" stroke="#10b981"/>
+                <text x="25" y="16" fill="#6ee7b7" font-size="8" text-anchor="middle">Sites</text>
+              </g>
+              <!-- Bottom Row -->
+              <g transform="translate(15,165)">
+                <rect x="0" y="0" width="60" height="25" rx="4" fill="rgba(236,72,153,0.2)" stroke="#ec4899"/>
+                <text x="30" y="16" fill="#f9a8d4" font-size="8" text-anchor="middle">CAPWAP</text>
+              </g>
+              <g transform="translate(85,165)">
+                <rect x="0" y="0" width="60" height="25" rx="4" fill="rgba(236,72,153,0.2)" stroke="#ec4899"/>
+                <text x="30" y="16" fill="#f9a8d4" font-size="8" text-anchor="middle">NOS API</text>
+              </g>
+              <g transform="translate(155,165)">
+                <rect x="0" y="0" width="50" height="25" rx="4" fill="rgba(236,72,153,0.2)" stroke="#ec4899"/>
+                <text x="25" y="16" fill="#f9a8d4" font-size="8" text-anchor="middle">Inlets</text>
+              </g>
+              <!-- Radsec Tunnel -->
+              <g transform="translate(170,60)">
+                <rect x="0" y="0" width="90" height="28" rx="4" fill="rgba(124,58,237,0.3)" stroke="#7c3aed"/>
+                <text x="45" y="18" fill="#c4b5fd" font-size="9" text-anchor="middle">Radsec Tunnel</text>
+              </g>
+            </g>
+
+            <!-- IDM Service -->
+            <g transform="translate(330,300)">
+              <rect x="0" y="0" width="140" height="180" rx="8" fill="rgba(99,102,241,0.1)" stroke="#6366f1" stroke-width="2"/>
+              <text x="70" y="-8" fill="#818cf8" font-size="12" font-weight="600" text-anchor="middle">IDM Service</text>
+              <g transform="translate(15,25)">
+                <rect x="0" y="0" width="110" height="28" rx="4" fill="rgba(99,102,241,0.2)" stroke="#6366f1"/>
+                <text x="55" y="18" fill="#a5b4fc" font-size="10" text-anchor="middle">IDM Auth</text>
+              </g>
+              <g transform="translate(15,60)">
+                <rect x="0" y="0" width="110" height="28" rx="4" fill="rgba(99,102,241,0.2)" stroke="#6366f1"/>
+                <text x="55" y="18" fill="#a5b4fc" font-size="10" text-anchor="middle">Auth Handler</text>
+              </g>
+              <g transform="translate(15,95)">
+                <rect x="0" y="0" width="110" height="28" rx="4" fill="rgba(99,102,241,0.2)" stroke="#6366f1"/>
+                <text x="55" y="18" fill="#a5b4fc" font-size="10" text-anchor="middle">IDM Log</text>
+              </g>
+              <g transform="translate(15,130)">
+                <rect x="0" y="0" width="110" height="28" rx="4" fill="rgba(99,102,241,0.2)" stroke="#6366f1"/>
+                <text x="55" y="18" fill="#a5b4fc" font-size="10" text-anchor="middle">IDM TE</text>
+              </g>
+            </g>
+
+            <!-- Platform ONE -->
+            <g transform="translate(490,300)">
+              <rect x="0" y="0" width="160" height="280" rx="10" fill="rgba(124,58,237,0.1)" stroke="#7c3aed" stroke-width="2"/>
+              <rect x="20" y="10" width="120" height="25" rx="4" fill="#7c3aed"/>
+              <text x="80" y="27" fill="white" font-size="11" font-weight="600" text-anchor="middle">Platform ONE</text>
+              <g transform="translate(20,45)">
+                <rect x="0" y="0" width="120" height="24" rx="4" fill="rgba(124,58,237,0.3)" stroke="#7c3aed"/>
+                <text x="60" y="16" fill="#e9d5ff" font-size="10" text-anchor="middle">XIQ</text>
+              </g>
+              <g transform="translate(20,75)">
+                <rect x="0" y="0" width="120" height="24" rx="4" fill="rgba(59,130,246,0.3)" stroke="#3b82f6"/>
+                <text x="60" y="16" fill="#93c5fd" font-size="10" text-anchor="middle">SDWAN</text>
+              </g>
+              <g transform="translate(20,105)">
+                <rect x="0" y="0" width="120" height="24" rx="4" fill="rgba(6,182,212,0.3)" stroke="#06b6d4"/>
+                <text x="60" y="16" fill="#67e8f9" font-size="10" text-anchor="middle">UZTNA</text>
+              </g>
+              <g transform="translate(20,135)">
+                <rect x="0" y="0" width="120" height="24" rx="4" fill="rgba(16,185,129,0.3)" stroke="#10b981"/>
+                <text x="60" y="16" fill="#6ee7b7" font-size="10" text-anchor="middle">CoPilot</text>
+              </g>
+              <g transform="translate(20,165)">
+                <rect x="0" y="0" width="120" height="24" rx="4" fill="rgba(245,158,11,0.3)" stroke="#f59e0b"/>
+                <text x="60" y="16" fill="#fcd34d" font-size="10" text-anchor="middle">Essentials</text>
+              </g>
+              <g transform="translate(20,195)">
+                <rect x="0" y="0" width="120" height="24" rx="4" fill="rgba(236,72,153,0.3)" stroke="#ec4899"/>
+                <text x="60" y="16" fill="#f9a8d4" font-size="10" text-anchor="middle">XCD</text>
+              </g>
+              <g transform="translate(20,225)">
+                <rect x="0" y="0" width="120" height="24" rx="4" fill="rgba(239,68,68,0.3)" stroke="#ef4444"/>
+                <text x="60" y="16" fill="#fca5a5" font-size="10" text-anchor="middle">EII</text>
+              </g>
+              <g transform="translate(20,255)">
+                <rect x="0" y="0" width="120" height="24" rx="4" fill="rgba(99,102,241,0.3)" stroke="#6366f1"/>
+                <text x="60" y="16" fill="#a5b4fc" font-size="10" text-anchor="middle">IDM</text>
+              </g>
+            </g>
+
+            <!-- AI Lakehouse -->
+            <g transform="translate(680,300)">
+              <rect x="0" y="0" width="180" height="120" rx="10" fill="rgba(139,92,246,0.1)" stroke="#8b5cf6" stroke-width="2"/>
+              <text x="90" y="-8" fill="#a78bfa" font-size="12" font-weight="600" text-anchor="middle">AI Lakehouse</text>
+              <rect x="20" y="30" width="140" height="60" rx="6" fill="rgba(139,92,246,0.2)" stroke="#8b5cf6"/>
+              <text x="90" y="55" fill="#c4b5fd" font-size="10" text-anchor="middle">Data</text>
+              <text x="90" y="72" fill="#a78bfa" font-size="9" text-anchor="middle">(Customer Tagged)</text>
+            </g>
+
+            <!-- AI Core -->
+            <g transform="translate(900,320)">
+              <rect x="0" y="0" width="180" height="100" rx="10" fill="rgba(16,185,129,0.1)" stroke="#10b981" stroke-width="2"/>
+              <text x="90" y="25" fill="#34d399" font-size="13" font-weight="600" text-anchor="middle">AI Core</text>
+              <rect x="30" y="45" width="120" height="35" rx="6" fill="rgba(16,185,129,0.2)" stroke="#10b981"/>
+              <text x="90" y="68" fill="#6ee7b7" font-size="11" text-anchor="middle">Autogen</text>
+            </g>
+
+            <!-- AI Expert -->
+            <g transform="translate(680,450)">
+              <rect x="0" y="0" width="180" height="80" rx="10" fill="rgba(236,72,153,0.1)" stroke="#ec4899" stroke-width="2"/>
+              <text x="90" y="25" fill="#f472b6" font-size="13" font-weight="600" text-anchor="middle">AI Expert</text>
+              <text x="90" y="55" fill="#f9a8d4" font-size="11" text-anchor="middle">OpenAI 4.5</text>
+            </g>
+
+            <!-- MCP Server -->
+            <g transform="translate(580,560)">
+              <rect x="0" y="0" width="280" height="90" rx="10" fill="rgba(59,130,246,0.1)" stroke="#3b82f6" stroke-width="2"/>
+              <text x="140" y="25" fill="#60a5fa" font-size="13" font-weight="600" text-anchor="middle">MCP Server</text>
+              <g transform="translate(30,40)">
+                <rect x="0" y="0" width="60" height="35" rx="6" fill="rgba(16,185,129,0.2)" stroke="#10b981"/>
+                <text x="30" y="22" fill="#6ee7b7" font-size="10" text-anchor="middle">Meraki</text>
+              </g>
+              <g transform="translate(110,40)">
+                <rect x="0" y="0" width="60" height="35" rx="6" fill="rgba(124,58,237,0.2)" stroke="#7c3aed"/>
+                <text x="30" y="22" fill="#c4b5fd" font-size="10" text-anchor="middle">XIQ</text>
+              </g>
+              <g transform="translate(190,40)">
+                <rect x="0" y="0" width="60" height="35" rx="6" fill="rgba(6,182,212,0.2)" stroke="#06b6d4"/>
+                <text x="30" y="22" fill="#67e8f9" font-size="10" text-anchor="middle">Mist</text>
+              </g>
+            </g>
+
+            <!-- AI Exchange -->
+            <g transform="translate(900,450)">
+              <rect x="0" y="0" width="160" height="70" rx="10" fill="linear-gradient(135deg,rgba(124,58,237,0.2),rgba(59,130,246,0.2))" stroke="url(#gradient1)" stroke-width="2"/>
+              <defs>
+                <linearGradient id="gradient1" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#7c3aed"/>
+                  <stop offset="100%" style="stop-color:#3b82f6"/>
+                </linearGradient>
+              </defs>
+              <text x="80" y="30" fill="#c4b5fd" font-size="13" font-weight="600" text-anchor="middle">AI Exchange</text>
+              <rect x="110" y="40" width="40" height="20" rx="4" fill="#10b981"/>
+              <text x="130" y="54" fill="white" font-size="9" text-anchor="middle">New</text>
+            </g>
+
+            <!-- Security/Certs (Right Side) -->
+            <g transform="translate(1100,300)">
+              <text x="70" y="0" fill="#f59e0b" font-size="12" font-weight="600" text-anchor="middle">Security/Certs</text>
+              <rect x="10" y="15" width="120" height="30" rx="4" fill="rgba(59,130,246,0.2)" stroke="#3b82f6"/>
+              <text x="70" y="35" fill="#93c5fd" font-size="10" text-anchor="middle">ISO 27001</text>
+              <rect x="10" y="55" width="120" height="30" rx="4" fill="rgba(16,185,129,0.2)" stroke="#10b981"/>
+              <text x="70" y="75" fill="#6ee7b7" font-size="10" text-anchor="middle">GDPR</text>
+              <rect x="10" y="95" width="120" height="30" rx="4" fill="rgba(245,158,11,0.2)" stroke="#f59e0b"/>
+              <text x="70" y="115" fill="#fcd34d" font-size="10" text-anchor="middle">SOC</text>
+              <rect x="10" y="135" width="120" height="30" rx="4" fill="rgba(236,72,153,0.2)" stroke="#ec4899"/>
+              <text x="70" y="155" fill="#f9a8d4" font-size="10" text-anchor="middle">AICPA</text>
+            </g>
+
+            <!-- Customer Network (Bottom) -->
+            <g transform="translate(30,720)">
+              <rect x="0" y="0" width="280" height="100" rx="10" fill="rgba(107,114,128,0.1)" stroke="#6b7280" stroke-width="2"/>
+              <text x="140" y="25" fill="#9ca3af" font-size="13" font-weight="600" text-anchor="middle">Customer Network</text>
+              <g transform="translate(40,45)">
+                <rect x="0" y="0" width="40" height="35" rx="4" fill="rgba(107,114,128,0.2)" stroke="#6b7280"/>
+                <text x="20" y="22" fill="#d1d5db" font-size="9" text-anchor="middle">AP</text>
+              </g>
+              <g transform="translate(100,45)">
+                <rect x="0" y="0" width="40" height="35" rx="4" fill="rgba(107,114,128,0.2)" stroke="#6b7280"/>
+                <text x="20" y="22" fill="#d1d5db" font-size="9" text-anchor="middle">Switch</text>
+              </g>
+              <g transform="translate(160,45)">
+                <rect x="0" y="0" width="40" height="35" rx="4" fill="rgba(107,114,128,0.2)" stroke="#6b7280"/>
+                <text x="20" y="22" fill="#d1d5db" font-size="9" text-anchor="middle">Router</text>
+              </g>
+              <g transform="translate(220,45)">
+                <rect x="0" y="0" width="40" height="35" rx="4" fill="rgba(107,114,128,0.2)" stroke="#6b7280"/>
+                <text x="20" y="22" fill="#d1d5db" font-size="9" text-anchor="middle">FW</text>
+              </g>
+            </g>
+
+            <!-- Connection Lines -->
+            <line x1="170" y1="580" x2="170" y2="720" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,2"/>
+            <line x1="580" y1="650" x2="400" y2="720" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arrowhead-blue)"/>
+            <text x="480" y="680" fill="#60a5fa" font-size="9" text-anchor="middle">API Token</text>
+
+            <!-- Copyright -->
+            <text x="1380" y="885" fill="#6b7280" font-size="9" text-anchor="end">©2025 EXTREME NETWORKS, INC. ALL RIGHTS RESERVED.</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+
     <!-- XIQ View (Placeholder) -->
     <div id="view-xiq" class="view-panel">
       <div class="page-header">
@@ -6188,6 +6555,25 @@ app.get(UI_ROUTE, (_req, res) => {
       var sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
       var i = Math.floor(Math.log(bytes) / Math.log(k));
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    // Architecture Diagram Functions
+    var architectureZoom = 1;
+    function zoomArchitecture(factor) {
+      architectureZoom *= factor;
+      if (architectureZoom < 0.5) architectureZoom = 0.5;
+      if (architectureZoom > 2) architectureZoom = 2;
+      var container = document.getElementById('architecture-container');
+      if (container) {
+        container.style.transform = 'scale(' + architectureZoom + ')';
+      }
+    }
+    function resetArchitectureZoom() {
+      architectureZoom = 1;
+      var container = document.getElementById('architecture-container');
+      if (container) {
+        container.style.transform = 'scale(1)';
+      }
     }
 
     // PSIRT Advisory Functions
