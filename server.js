@@ -2908,7 +2908,7 @@ app.get("/api/topology/map", async (req, res) => {
           console.warn(`Failed to get devices for network ${network.name}:`, e.message);
         }
 
-        // Get LLDP/CDP neighbors for topology connections
+        // Get LLDP/CDP neighbors for topology connections (network-level)
         try {
           const lldpCdp = await merakiFetch(`/networks/${network.id}/topology/linkLayer`);
           if (lldpCdp && lldpCdp.links) {
@@ -2922,13 +2922,87 @@ app.get("/api/topology/map", async (req, res) => {
                   to: link.ends[1]?.device?.serial,
                   type: 'lldp',
                   fromPort: link.ends[0]?.port?.portId,
-                  toPort: link.ends[1]?.port?.portId
+                  toPort: link.ends[1]?.port?.portId,
+                  fromDevice: link.ends[0]?.device?.name,
+                  toDevice: link.ends[1]?.device?.name,
+                  lastReportedAt: link.lastReportedAt
                 });
               }
             }
           }
         } catch (e) {
-          // LLDP/CDP may not be available
+          // LLDP/CDP network topology may not be available
+        }
+
+        // Get per-device LLDP/CDP neighbors for more detail
+        try {
+          const devices = await merakiFetch(`/networks/${network.id}/devices`);
+          for (const device of (devices || [])) {
+            try {
+              const lldpData = await merakiFetch(`/devices/${device.serial}/lldpCdp`);
+              if (lldpData) {
+                // Process LLDP ports
+                if (lldpData.ports) {
+                  for (const [portId, portData] of Object.entries(lldpData.ports)) {
+                    // Check for LLDP neighbor
+                    if (portData.lldp) {
+                      const neighbor = portData.lldp;
+                      const neighborSerial = neighbor.deviceSerial || neighbor.chassisId;
+                      const edgeId = [device.serial, neighborSerial].sort().join('-lldp-');
+
+                      if (!topology.edges.find(e => e.id === edgeId)) {
+                        topology.edges.push({
+                          id: edgeId,
+                          from: device.serial,
+                          to: neighborSerial,
+                          type: 'lldp',
+                          protocol: 'LLDP',
+                          fromPort: portId,
+                          toPort: neighbor.portId || neighbor.portDescription,
+                          fromDevice: device.name || device.serial,
+                          toDevice: neighbor.systemName || neighbor.deviceSerial || 'Unknown',
+                          toModel: neighbor.systemDescription,
+                          toMac: neighbor.chassisId,
+                          toIp: neighbor.managementAddress,
+                          capabilities: neighbor.systemCapabilities,
+                          status: 'active'
+                        });
+                      }
+                    }
+                    // Check for CDP neighbor
+                    if (portData.cdp) {
+                      const neighbor = portData.cdp;
+                      const neighborSerial = neighbor.deviceId || neighbor.address;
+                      const edgeId = [device.serial, neighborSerial].sort().join('-cdp-');
+
+                      if (!topology.edges.find(e => e.id === edgeId)) {
+                        topology.edges.push({
+                          id: edgeId,
+                          from: device.serial,
+                          to: neighborSerial,
+                          type: 'cdp',
+                          protocol: 'CDP',
+                          fromPort: portId,
+                          toPort: neighbor.portId,
+                          fromDevice: device.name || device.serial,
+                          toDevice: neighbor.deviceId || 'Unknown',
+                          toPlatform: neighbor.platform,
+                          toIp: neighbor.address,
+                          capabilities: neighbor.capabilities,
+                          nativeVlan: neighbor.nativeVlan,
+                          status: 'active'
+                        });
+                      }
+                    }
+                  }
+                }
+              }
+            } catch (lldpErr) {
+              // LLDP/CDP not available for this device
+            }
+          }
+        } catch (e) {
+          // Per-device LLDP fetch failed
         }
       }
     }
@@ -5085,12 +5159,16 @@ app.get(UI_ROUTE, (_req, res) => {
             <span style="font-size:13px;color:var(--foreground-muted)">Other</span>
           </div>
           <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
-            <div style="width:24px;height:3px;background:var(--success);border-radius:2px"></div>
-            <span style="font-size:13px;color:var(--foreground-muted)">Active Link</span>
+            <div style="width:24px;height:3px;background:#22c55e;border-radius:2px"></div>
+            <span style="font-size:13px;color:var(--foreground-muted)">LLDP Link</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:24px;height:3px;background:#3b82f6;border-radius:2px"></div>
+            <span style="font-size:13px;color:var(--foreground-muted)">CDP Link</span>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <div style="width:24px;height:3px;background:var(--border);border-radius:2px;border:1px dashed var(--foreground-muted)"></div>
-            <span style="font-size:13px;color:var(--foreground-muted)">Inactive</span>
+            <span style="font-size:13px;color:var(--foreground-muted)">Unknown</span>
           </div>
         </div>
 
@@ -5101,6 +5179,32 @@ app.get(UI_ROUTE, (_req, res) => {
             <div style="font-size:14px">Click Refresh to load topology</div>
           </div>
           <svg id="topology-svg" width="100%" height="500" style="display:none"></svg>
+        </div>
+
+        <!-- Link Details Panel -->
+        <div id="topology-links" style="margin-top:20px;background:var(--surface);border-radius:12px;padding:20px;border:1px solid var(--border);display:none">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <h3 style="margin:0;font-size:16px;font-weight:600">
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:8px"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              Network Links (LLDP/CDP)
+            </h3>
+            <span id="topology-link-count" style="background:var(--primary);color:white;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600">0 links</span>
+          </div>
+          <div id="topology-links-table" style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border)">
+                  <th style="text-align:left;padding:10px 8px;color:var(--foreground-muted);font-weight:500">Protocol</th>
+                  <th style="text-align:left;padding:10px 8px;color:var(--foreground-muted);font-weight:500">Source Device</th>
+                  <th style="text-align:left;padding:10px 8px;color:var(--foreground-muted);font-weight:500">Port</th>
+                  <th style="text-align:left;padding:10px 8px;color:var(--foreground-muted);font-weight:500">Target Device</th>
+                  <th style="text-align:left;padding:10px 8px;color:var(--foreground-muted);font-weight:500">Port</th>
+                  <th style="text-align:left;padding:10px 8px;color:var(--foreground-muted);font-weight:500">IP</th>
+                </tr>
+              </thead>
+              <tbody id="topology-links-body"></tbody>
+            </table>
+          </div>
         </div>
 
         <!-- Device Details Panel -->
@@ -6118,41 +6222,82 @@ app.get(UI_ROUTE, (_req, res) => {
 
       // Draw edges first (behind nodes)
       const edgesGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      const lldpEdges = [];
+
       if (data.edges) {
         data.edges.forEach(edge => {
           // Skip network-device edges (container relationships)
           if (edge.type === 'network-device') return;
 
+          // Track LLDP/CDP edges for the table
+          if (edge.type === 'lldp' || edge.type === 'cdp') {
+            lldpEdges.push(edge);
+          }
+
           const source = nodePositions[edge.from];
           const target = nodePositions[edge.to];
           if (!source || !target) return;
+
+          // Different colors for LLDP vs CDP
+          let strokeColor = 'var(--border)';
+          let strokeWidth = '1';
+          let dashArray = '4,4';
+
+          if (edge.type === 'lldp' || edge.protocol === 'LLDP') {
+            strokeColor = '#22c55e'; // Green for LLDP
+            strokeWidth = '2';
+            dashArray = '';
+          } else if (edge.type === 'cdp' || edge.protocol === 'CDP') {
+            strokeColor = '#3b82f6'; // Blue for CDP
+            strokeWidth = '2';
+            dashArray = '';
+          }
 
           const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
           line.setAttribute('x1', source.x);
           line.setAttribute('y1', source.y);
           line.setAttribute('x2', target.x);
           line.setAttribute('y2', target.y);
-          line.setAttribute('stroke', edge.type === 'lldp' ? 'var(--success)' : 'var(--border)');
-          line.setAttribute('stroke-width', edge.type === 'lldp' ? '2' : '1');
-          line.setAttribute('stroke-dasharray', edge.type === 'lldp' ? '' : '4,4');
+          line.setAttribute('stroke', strokeColor);
+          line.setAttribute('stroke-width', strokeWidth);
+          if (dashArray) line.setAttribute('stroke-dasharray', dashArray);
+          line.style.cursor = 'pointer';
+          line.onclick = () => showLinkDetails(edge);
           edgesGroup.appendChild(line);
 
           // Add port labels if available
           if (edge.fromPort || edge.toPort) {
             const midX = (source.x + target.x) / 2;
             const midY = (source.y + target.y) / 2;
+
+            // Background for better readability
+            const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            const labelText = (edge.fromPort || '?') + ' ↔ ' + (edge.toPort || '?');
+            bg.setAttribute('x', midX - 30);
+            bg.setAttribute('y', midY - 14);
+            bg.setAttribute('width', '60');
+            bg.setAttribute('height', '14');
+            bg.setAttribute('fill', 'var(--background)');
+            bg.setAttribute('rx', '3');
+            bg.setAttribute('opacity', '0.8');
+            edgesGroup.appendChild(bg);
+
             const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             label.setAttribute('x', midX);
-            label.setAttribute('y', midY - 5);
+            label.setAttribute('y', midY - 4);
             label.setAttribute('text-anchor', 'middle');
-            label.setAttribute('fill', 'var(--foreground-muted)');
-            label.setAttribute('font-size', '10');
-            label.textContent = (edge.fromPort || '') + ' ↔ ' + (edge.toPort || '');
+            label.setAttribute('fill', strokeColor);
+            label.setAttribute('font-size', '9');
+            label.setAttribute('font-weight', '500');
+            label.textContent = labelText;
             edgesGroup.appendChild(label);
           }
         });
       }
       svg.appendChild(edgesGroup);
+
+      // Populate links table
+      populateLinksTable(lldpEdges);
 
       // Draw nodes
       const nodesGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -6278,6 +6423,90 @@ app.get(UI_ROUTE, (_req, res) => {
           '<div style="color:var(--foreground-muted);font-size:11px;margin-bottom:4px">IP Address</div>' +
           '<div style="font-weight:600;font-family:monospace">' + (node.lanIp || node.ip || 'N/A') + '</div>' +
         '</div>';
+    }
+
+    function populateLinksTable(edges) {
+      const linksPanel = document.getElementById('topology-links');
+      const linksBody = document.getElementById('topology-links-body');
+      const linkCount = document.getElementById('topology-link-count');
+
+      if (!edges || edges.length === 0) {
+        linksPanel.style.display = 'none';
+        return;
+      }
+
+      linksPanel.style.display = 'block';
+      linkCount.textContent = edges.length + ' link' + (edges.length !== 1 ? 's' : '');
+
+      linksBody.innerHTML = edges.map(edge => {
+        const protocolColor = edge.type === 'lldp' || edge.protocol === 'LLDP' ? '#22c55e' : '#3b82f6';
+        const protocol = edge.protocol || (edge.type === 'lldp' ? 'LLDP' : edge.type === 'cdp' ? 'CDP' : 'Unknown');
+
+        return '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="showLinkDetails(' + JSON.stringify(edge).replace(/"/g, "'") + ')">' +
+          '<td style="padding:10px 8px"><span style="background:' + protocolColor + ';color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">' + protocol + '</span></td>' +
+          '<td style="padding:10px 8px">' + (edge.fromDevice || edge.from || 'Unknown') + '</td>' +
+          '<td style="padding:10px 8px;font-family:monospace;color:var(--primary)">' + (edge.fromPort || '-') + '</td>' +
+          '<td style="padding:10px 8px">' + (edge.toDevice || edge.to || 'Unknown') + '</td>' +
+          '<td style="padding:10px 8px;font-family:monospace;color:var(--primary)">' + (edge.toPort || '-') + '</td>' +
+          '<td style="padding:10px 8px;font-family:monospace;color:var(--foreground-muted)">' + (edge.toIp || '-') + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    function showLinkDetails(edge) {
+      const detailsPanel = document.getElementById('topology-details');
+      const infoDiv = document.getElementById('topology-device-info');
+
+      detailsPanel.style.display = 'block';
+
+      const protocolColor = edge.type === 'lldp' || edge.protocol === 'LLDP' ? '#22c55e' : '#3b82f6';
+      const protocol = edge.protocol || (edge.type === 'lldp' ? 'LLDP' : edge.type === 'cdp' ? 'CDP' : 'Unknown');
+
+      infoDiv.innerHTML =
+        '<div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:8px">' +
+          '<div style="color:var(--foreground-muted);font-size:11px;margin-bottom:4px">Protocol</div>' +
+          '<div style="font-weight:600;color:' + protocolColor + '">' + protocol + '</div>' +
+        '</div>' +
+        '<div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:8px">' +
+          '<div style="color:var(--foreground-muted);font-size:11px;margin-bottom:4px">Source Device</div>' +
+          '<div style="font-weight:600">' + (edge.fromDevice || edge.from || 'Unknown') + '</div>' +
+        '</div>' +
+        '<div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:8px">' +
+          '<div style="color:var(--foreground-muted);font-size:11px;margin-bottom:4px">Source Port</div>' +
+          '<div style="font-weight:600;font-family:monospace">' + (edge.fromPort || 'N/A') + '</div>' +
+        '</div>' +
+        '<div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:8px">' +
+          '<div style="color:var(--foreground-muted);font-size:11px;margin-bottom:4px">Target Device</div>' +
+          '<div style="font-weight:600">' + (edge.toDevice || edge.to || 'Unknown') + '</div>' +
+        '</div>' +
+        '<div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:8px">' +
+          '<div style="color:var(--foreground-muted);font-size:11px;margin-bottom:4px">Target Port</div>' +
+          '<div style="font-weight:600;font-family:monospace">' + (edge.toPort || 'N/A') + '</div>' +
+        '</div>' +
+        '<div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:8px">' +
+          '<div style="color:var(--foreground-muted);font-size:11px;margin-bottom:4px">Target IP</div>' +
+          '<div style="font-weight:600;font-family:monospace">' + (edge.toIp || 'N/A') + '</div>' +
+        '</div>' +
+        (edge.toPlatform ? '<div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:8px">' +
+          '<div style="color:var(--foreground-muted);font-size:11px;margin-bottom:4px">Platform</div>' +
+          '<div style="font-weight:600">' + edge.toPlatform + '</div>' +
+        '</div>' : '') +
+        (edge.toModel ? '<div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:8px">' +
+          '<div style="color:var(--foreground-muted);font-size:11px;margin-bottom:4px">Model/Description</div>' +
+          '<div style="font-weight:600">' + edge.toModel + '</div>' +
+        '</div>' : '') +
+        (edge.capabilities ? '<div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:8px">' +
+          '<div style="color:var(--foreground-muted);font-size:11px;margin-bottom:4px">Capabilities</div>' +
+          '<div style="font-weight:600">' + edge.capabilities + '</div>' +
+        '</div>' : '') +
+        (edge.nativeVlan ? '<div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:8px">' +
+          '<div style="color:var(--foreground-muted);font-size:11px;margin-bottom:4px">Native VLAN</div>' +
+          '<div style="font-weight:600">' + edge.nativeVlan + '</div>' +
+        '</div>' : '') +
+        (edge.toMac ? '<div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:8px">' +
+          '<div style="color:var(--foreground-muted);font-size:11px;margin-bottom:4px">Chassis ID (MAC)</div>' +
+          '<div style="font-weight:600;font-family:monospace">' + edge.toMac + '</div>' +
+        '</div>' : '');
     }
 
     // Change Risk Prediction Functions
