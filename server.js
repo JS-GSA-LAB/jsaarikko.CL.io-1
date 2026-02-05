@@ -4292,15 +4292,13 @@ app.get(UI_ROUTE, (_req, res) => {
 
     /* 9-dot App Launcher */
     .app-launcher {
-      position: fixed;
-      top: 16px;
-      right: 20px;
-      z-index: 1001;
+      position: relative;
+      display: inline-block;
     }
     .app-launcher-btn {
-      width: 40px;
-      height: 40px;
-      border-radius: 10px;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
       border: 1px solid var(--border);
       background: var(--surface);
       color: var(--foreground-muted);
@@ -4309,7 +4307,6 @@ app.get(UI_ROUTE, (_req, res) => {
       align-items: center;
       justify-content: center;
       transition: all 0.15s ease;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     }
     .app-launcher-btn:hover {
       background: var(--surface-hover);
@@ -4393,62 +4390,6 @@ app.get(UI_ROUTE, (_req, res) => {
   </style>
 </head>
 <body>
-  <!-- 9-dot App Launcher (Fixed Upper Right) -->
-  <div class="app-launcher">
-    <button class="app-launcher-btn" onclick="toggleAppLauncher(event)" title="Apps & Integrations">
-      <div class="app-launcher-dots">
-        <span></span><span></span><span></span>
-        <span></span><span></span><span></span>
-        <span></span><span></span><span></span>
-      </div>
-    </button>
-    <div class="app-launcher-menu" id="app-launcher-menu">
-      <div class="app-launcher-title">Integrations</div>
-      <div class="app-launcher-grid">
-        <a class="app-launcher-item" onclick="openIntegration('teams')">
-          <div class="app-launcher-icon" style="background:#5059c9">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-          </div>
-          <span class="app-launcher-label">Teams</span>
-        </a>
-        <a class="app-launcher-item" onclick="openIntegration('slack')">
-          <div class="app-launcher-icon" style="background:#4a154b">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M6 15a2 2 0 0 1-2 2 2 2 0 0 1-2-2 2 2 0 0 1 2-2h2v2zm1 0a2 2 0 0 1 2-2 2 2 0 0 1 2 2v5a2 2 0 1 1-4 0v-5z"/></svg>
-          </div>
-          <span class="app-launcher-label">Slack</span>
-        </a>
-        <a class="app-launcher-item" onclick="openIntegration('webhook')">
-          <div class="app-launcher-icon" style="background:#10b981">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-          </div>
-          <span class="app-launcher-label">Webhook</span>
-        </a>
-      </div>
-      <div class="app-launcher-divider"></div>
-      <div class="app-launcher-title">Tools</div>
-      <div class="app-launcher-grid">
-        <a class="app-launcher-item" href="https://xiq-migration.up.railway.app/" target="_blank" onclick="closeAppLauncher()">
-          <div class="app-launcher-icon" style="background:linear-gradient(135deg,#7c3aed,#2dd4bf)">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-          </div>
-          <span class="app-launcher-label">XIQ Migration</span>
-        </a>
-        <a class="app-launcher-item" onclick="showView('topology');closeAppLauncher()">
-          <div class="app-launcher-icon" style="background:#3b82f6">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
-          </div>
-          <span class="app-launcher-label">Topology</span>
-        </a>
-        <a class="app-launcher-item" onclick="showView('rca');closeAppLauncher()">
-          <div class="app-launcher-icon" style="background:#8b5cf6">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          </div>
-          <span class="app-launcher-label">RCA</span>
-        </a>
-      </div>
-    </div>
-  </div>
-
   <!-- Sidebar Navigation -->
   <nav class="sidebar">
     <div class="sidebar-header">
@@ -4549,6 +4490,60 @@ app.get(UI_ROUTE, (_req, res) => {
           <div class="page-subtitle">Network overview and quick stats</div>
         </div>
         <div class="header-actions">
+          <div class="app-launcher">
+            <button class="app-launcher-btn" onclick="toggleAppLauncher(event)" title="Apps & Integrations">
+              <div class="app-launcher-dots">
+                <span></span><span></span><span></span>
+                <span></span><span></span><span></span>
+                <span></span><span></span><span></span>
+              </div>
+            </button>
+            <div class="app-launcher-menu" id="app-launcher-menu">
+              <div class="app-launcher-title">Integrations</div>
+              <div class="app-launcher-grid">
+                <a class="app-launcher-item" onclick="openIntegration('teams')">
+                  <div class="app-launcher-icon" style="background:#5059c9">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+                  </div>
+                  <span class="app-launcher-label">Teams</span>
+                </a>
+                <a class="app-launcher-item" onclick="openIntegration('slack')">
+                  <div class="app-launcher-icon" style="background:#4a154b">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M6 15a2 2 0 0 1-2 2 2 2 0 0 1-2-2 2 2 0 0 1 2-2h2v2zm1 0a2 2 0 0 1 2-2 2 2 0 0 1 2 2v5a2 2 0 1 1-4 0v-5z"/></svg>
+                  </div>
+                  <span class="app-launcher-label">Slack</span>
+                </a>
+                <a class="app-launcher-item" onclick="openIntegration('webhook')">
+                  <div class="app-launcher-icon" style="background:#10b981">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                  </div>
+                  <span class="app-launcher-label">Webhook</span>
+                </a>
+              </div>
+              <div class="app-launcher-divider"></div>
+              <div class="app-launcher-title">Tools</div>
+              <div class="app-launcher-grid">
+                <a class="app-launcher-item" href="https://xiq-migration.up.railway.app/" target="_blank" onclick="closeAppLauncher()">
+                  <div class="app-launcher-icon" style="background:linear-gradient(135deg,#7c3aed,#2dd4bf)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                  </div>
+                  <span class="app-launcher-label">XIQ Migration</span>
+                </a>
+                <a class="app-launcher-item" onclick="showView('topology');closeAppLauncher()">
+                  <div class="app-launcher-icon" style="background:#3b82f6">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
+                  </div>
+                  <span class="app-launcher-label">Topology</span>
+                </a>
+                <a class="app-launcher-item" onclick="showView('rca');closeAppLauncher()">
+                  <div class="app-launcher-icon" style="background:#8b5cf6">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                  </div>
+                  <span class="app-launcher-label">RCA</span>
+                </a>
+              </div>
+            </div>
+          </div>
           <button class="header-btn" onclick="loadDashboardData()">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
             Refresh
