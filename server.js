@@ -7316,8 +7316,12 @@ app.get(UI_ROUTE, (_req, res) => {
       }
 
       // Draw wireless client connections (dashed)
+      // Use Set to avoid duplicates since same posData stored under multiple keys
+      const renderedClientConnections = new Set();
       Object.entries(nodePositions).forEach(([id, pos]) => {
         if (!pos.isClient) return;
+        if (renderedClientConnections.has(pos)) return;
+        renderedClientConnections.add(pos);
 
         // Find connected AP
         const client = pos.node;
@@ -7349,8 +7353,12 @@ app.get(UI_ROUTE, (_req, res) => {
 
       // Draw device nodes
       const nodesGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      // Use Set to avoid duplicates since same posData stored under multiple keys (id, serial, mac)
+      const renderedNodes = new Set();
 
       Object.entries(nodePositions).forEach(([id, pos]) => {
+        if (renderedNodes.has(pos)) return;
+        renderedNodes.add(pos);
         const node = pos.node;
         const nodeId = id.replace(/[^a-zA-Z0-9]/g, '_');
         const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
