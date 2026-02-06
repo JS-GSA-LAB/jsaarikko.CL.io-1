@@ -7316,12 +7316,13 @@ app.get(UI_ROUTE, (_req, res) => {
       }
 
       // Draw wireless client connections (dashed)
-      // Use Set to avoid duplicates since same posData stored under multiple keys
-      const renderedClientConnections = new Set();
+      // Use Set to avoid duplicates - track by client id
+      const renderedClientIds = new Set();
       Object.entries(nodePositions).forEach(([id, pos]) => {
         if (!pos.isClient) return;
-        if (renderedClientConnections.has(pos)) return;
-        renderedClientConnections.add(pos);
+        const clientKey = pos.node.id || id;
+        if (renderedClientIds.has(clientKey)) return;
+        renderedClientIds.add(clientKey);
 
         // Find connected AP
         const client = pos.node;
@@ -7353,13 +7354,15 @@ app.get(UI_ROUTE, (_req, res) => {
 
       // Draw device nodes
       const nodesGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-      // Use Set to avoid duplicates since same posData stored under multiple keys (id, serial, mac)
-      const renderedNodes = new Set();
+      // Use Set to avoid duplicates - track by node serial/id, not object reference
+      const renderedNodeIds = new Set();
 
       Object.entries(nodePositions).forEach(([id, pos]) => {
-        if (renderedNodes.has(pos)) return;
-        renderedNodes.add(pos);
         const node = pos.node;
+        // Create unique key for this node
+        const nodeKey = node.serial || node.id || id;
+        if (renderedNodeIds.has(nodeKey)) return;
+        renderedNodeIds.add(nodeKey);
         const nodeId = id.replace(/[^a-zA-Z0-9]/g, '_');
         const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         group.setAttribute('id', 'topo-node-' + nodeId);
