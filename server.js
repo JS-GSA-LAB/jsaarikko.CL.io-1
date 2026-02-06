@@ -7105,6 +7105,11 @@ app.get(UI_ROUTE, (_req, res) => {
         });
       }
 
+      // Helper to normalize MAC for lookups (remove colons, lowercase)
+      function normalizeMac(mac) {
+        return mac ? mac.replace(/:/g, '').toLowerCase() : null;
+      }
+
       // Position switches (leftmost)
       switches.forEach((sw, i) => {
         const posData = {
@@ -7114,8 +7119,12 @@ app.get(UI_ROUTE, (_req, res) => {
           deviceType: 'switch'
         };
         nodePositions[sw.id] = posData;
-        // Also store by serial for edge lookups
+        // Also store by serial and MAC for edge lookups
         if (sw.serial) nodePositions[sw.serial] = posData;
+        if (sw.mac) {
+          nodePositions[sw.mac] = posData;
+          nodePositions[normalizeMac(sw.mac)] = posData;
+        }
       });
 
       // Position routers and APs connected to switches
@@ -7156,8 +7165,12 @@ app.get(UI_ROUTE, (_req, res) => {
           deviceType: deviceType
         };
         nodePositions[device.id] = posData;
-        // Also store by serial for edge lookups
+        // Also store by serial and MAC for edge lookups
         if (device.serial) nodePositions[device.serial] = posData;
+        if (device.mac) {
+          nodePositions[device.mac] = posData;
+          nodePositions[normalizeMac(device.mac)] = posData;
+        }
         tier2Y += verticalSpacing;
       });
 
@@ -7178,8 +7191,12 @@ app.get(UI_ROUTE, (_req, res) => {
             deviceType: deviceType
           };
           nodePositions[device.id] = posData;
-          // Also store by serial for edge lookups
+          // Also store by serial and MAC for edge lookups
           if (device.serial) nodePositions[device.serial] = posData;
+          if (device.mac) {
+            nodePositions[device.mac] = posData;
+            nodePositions[normalizeMac(device.mac)] = posData;
+          }
         });
       }
 
@@ -7238,8 +7255,11 @@ app.get(UI_ROUTE, (_req, res) => {
             lldpEdges.push(edge);
           }
 
-          const source = nodePositions[edge.from] || nodePositions[edge.to.replace ? edge.to : ''];
-          const target = nodePositions[edge.to] || nodePositions[edge.from.replace ? edge.from : ''];
+          // Try multiple lookups: direct ID, serial, MAC with colons, MAC without colons
+          const fromNorm = edge.from ? edge.from.replace(/:/g, '').toLowerCase() : '';
+          const toNorm = edge.to ? edge.to.replace(/:/g, '').toLowerCase() : '';
+          const source = nodePositions[edge.from] || nodePositions[fromNorm];
+          const target = nodePositions[edge.to] || nodePositions[toNorm];
           if (!source || !target) return;
 
           // Curved bezier path
