@@ -6143,6 +6143,26 @@ app.get(UI_ROUTE, (_req, res) => {
         var res = await fetch('/api/networks/' + networkId + '/traffic?timespan=86400');
         var data = await res.json();
 
+        // Check for API error
+        if (data && data.error) {
+          // Reset stats
+          document.getElementById('app-traffic-total').textContent = '--';
+          document.getElementById('app-traffic-upload').textContent = '--';
+          document.getElementById('app-traffic-download').textContent = '--';
+          document.getElementById('app-traffic-clients').textContent = '--';
+
+          if (data.error.indexOf('Traffic Analysis') !== -1) {
+            listEl.innerHTML = '<div style="text-align:center;padding:30px;color:var(--foreground-muted)">' +
+              '<div style="font-size:14px;margin-bottom:8px">Traffic Analysis not enabled</div>' +
+              '<div style="font-size:12px;opacity:0.7">Enable Traffic Analysis in Meraki Dashboard:</div>' +
+              '<div style="font-size:11px;opacity:0.6;margin-top:4px">Network-wide → General → Traffic Analysis</div>' +
+              '</div>';
+          } else {
+            listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--foreground-muted)">Error: ' + data.error + '</div>';
+          }
+          return;
+        }
+
         if (data && data.length > 0) {
           var totalSent = 0, totalRecv = 0;
           data.forEach(function(app) {
