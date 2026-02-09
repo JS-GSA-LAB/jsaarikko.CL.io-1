@@ -547,6 +547,126 @@ app.put("/api/networks/:networkId/settings", express.json(), async (req, res) =>
 });
 
 // =============================================================================
+// LOCAL STATUS PAGE APIs
+// =============================================================================
+
+// Get device details by serial
+app.get("/api/devices/:serial", async (req, res) => {
+  try {
+    const device = await merakiFetch(`/devices/${req.params.serial}`);
+    res.json(device);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get device wireless status (radio settings, channel, power)
+app.get("/api/devices/:serial/wireless/status", async (req, res) => {
+  try {
+    const serial = req.params.serial;
+
+    // Get device basic info
+    const device = await merakiFetch(`/devices/${serial}`);
+
+    // Get organization ID from device network
+    const network = await merakiFetch(`/networks/${device.networkId}`);
+    const orgId = network.organizationId;
+
+    // Get device status
+    let status = {};
+    try {
+      const statuses = await merakiFetch(`/organizations/${orgId}/devices/statuses?serials[]=${serial}`);
+      status = statuses && statuses[0] ? statuses[0] : {};
+    } catch (e) {}
+
+    // Get wireless radio settings
+    let radioSettings = {};
+    try {
+      radioSettings = await merakiFetch(`/devices/${serial}/wireless/radio/settings`);
+    } catch (e) {}
+
+    // Get device clients
+    let clients = [];
+    try {
+      clients = await merakiFetch(`/devices/${serial}/clients?timespan=300`);
+    } catch (e) {}
+
+    // Get LLDP/CDP neighbors
+    let neighbors = {};
+    try {
+      neighbors = await merakiFetch(`/devices/${serial}/lldpCdp`);
+    } catch (e) {}
+
+    // Get device uplink info
+    let uplinks = [];
+    try {
+      const uplinkData = await merakiFetch(`/organizations/${orgId}/devices/uplinks/addresses/byDevice?serials[]=${serial}`);
+      uplinks = uplinkData && uplinkData[0] ? uplinkData[0].uplinks : [];
+    } catch (e) {}
+
+    res.json({
+      device: {
+        ...device,
+        status: status.status || 'unknown',
+        publicIp: status.publicIp,
+        gateway: status.gateway,
+        primaryDns: status.primaryDns,
+        secondaryDns: status.secondaryDns,
+        lastReportedAt: status.lastReportedAt
+      },
+      radioSettings,
+      clients: clients || [],
+      clientCount: clients ? clients.length : 0,
+      neighbors,
+      uplinks
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all APs in a network with status
+app.get("/api/networks/:networkId/wireless/accessPoints", async (req, res) => {
+  try {
+    const networkId = req.params.networkId;
+    const network = await merakiFetch(`/networks/${networkId}`);
+    const orgId = network.organizationId;
+
+    // Get all devices in network
+    const devices = await merakiFetch(`/networks/${networkId}/devices`);
+
+    // Filter to APs only
+    const aps = devices.filter(d => d.model && (d.model.startsWith('MR') || d.model.startsWith('CW')));
+
+    // Get statuses for all APs
+    let statusMap = {};
+    try {
+      const serials = aps.map(ap => ap.serial).join('&serials[]=');
+      if (serials) {
+        const statuses = await merakiFetch(`/organizations/${orgId}/devices/statuses?serials[]=${serials}`);
+        for (const s of (statuses || [])) {
+          statusMap[s.serial] = s;
+        }
+      }
+    } catch (e) {}
+
+    // Enhance APs with status
+    const enhancedAps = aps.map(ap => ({
+      ...ap,
+      status: statusMap[ap.serial]?.status || 'unknown',
+      publicIp: statusMap[ap.serial]?.publicIp,
+      gateway: statusMap[ap.serial]?.gateway,
+      clientCount: statusMap[ap.serial]?.clientCount,
+      lastReportedAt: statusMap[ap.serial]?.lastReportedAt
+    }));
+
+    res.json(enhancedAps);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================================
 // AI ROOT CAUSE ANALYSIS ENGINE
 // =============================================================================
 
@@ -4436,6 +4556,10 @@ app.get(UI_ROUTE, (_req, res) => {
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
           App Traffic
         </button>
+        <button class="nav-item" onclick="showView('local-status')">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          Local Status
+        </button>
       </div>
       <div class="nav-section">
         <div class="nav-section-title">AI Intelligence</div>
@@ -5589,6 +5713,61 @@ app.get(UI_ROUTE, (_req, res) => {
       </div>
     </div>
 
+    <!-- Local Status Page View -->
+    <div id="view-local-status" class="view-panel">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Meraki Local Status Page</h1>
+          <div class="page-subtitle">Access Point status, radio settings, and network connectivity</div>
+        </div>
+        <div class="header-actions">
+          <select id="local-status-network-select" onchange="loadLocalStatusAPs()" style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--foreground);margin-right:8px">
+            <option value="">Select Network</option>
+          </select>
+          <select id="local-status-ap-select" onchange="loadAPStatus()" style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--foreground);margin-right:8px">
+            <option value="">All APs Overview</option>
+          </select>
+          <button class="header-btn" onclick="refreshLocalStatus()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+            Refresh
+          </button>
+        </div>
+      </div>
+      <div class="page-content">
+        <!-- Stats Overview -->
+        <div class="stats-grid" id="local-status-stats">
+          <div class="stat-card">
+            <div class="stat-card-label">Total APs</div>
+            <div class="stat-card-value" id="local-status-total">--</div>
+            <div class="stat-card-sub">In selected network</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card-label">Online</div>
+            <div class="stat-card-value" id="local-status-online" style="color:var(--success)">--</div>
+            <div class="stat-card-sub">Connected</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card-label">Alerting</div>
+            <div class="stat-card-value" id="local-status-alerting" style="color:#f59e0b">--</div>
+            <div class="stat-card-sub">Needs attention</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card-label">Total Clients</div>
+            <div class="stat-card-value" id="local-status-clients">--</div>
+            <div class="stat-card-sub">Connected to APs</div>
+          </div>
+        </div>
+
+        <!-- AP Overview / Detail Content -->
+        <div id="local-status-content">
+          <div style="text-align:center;padding:60px;color:var(--foreground-muted)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.4;margin-bottom:16px"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+            <div style="font-size:14px">Select a network to view Access Points</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- XIQ View (Placeholder) -->
     <div id="view-xiq" class="view-panel">
       <div class="page-header">
@@ -6104,6 +6283,8 @@ app.get(UI_ROUTE, (_req, res) => {
         loadPsirtAdvisories();
       } else if (viewId === 'app-traffic') {
         initAppTrafficView();
+      } else if (viewId === 'local-status') {
+        initLocalStatusView();
       }
     }
 
@@ -6208,6 +6389,331 @@ app.get(UI_ROUTE, (_req, res) => {
       var sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
       var i = Math.floor(Math.log(bytes) / Math.log(k));
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    // ===========================================
+    // LOCAL STATUS PAGE FUNCTIONS
+    // ===========================================
+
+    var localStatusAPs = [];
+
+    async function initLocalStatusView() {
+      var networkSelect = document.getElementById('local-status-network-select');
+      if (networkSelect && networkSelect.options.length <= 1) {
+        try {
+          var orgsRes = await fetch('/api/organizations');
+          var orgs = await orgsRes.json();
+          for (var o = 0; o < orgs.length; o++) {
+            var netsRes = await fetch('/api/organizations/' + orgs[o].id + '/networks');
+            var networks = await netsRes.json();
+            for (var n = 0; n < networks.length; n++) {
+              if (networks[n].productTypes && networks[n].productTypes.indexOf('wireless') !== -1) {
+                var opt = document.createElement('option');
+                opt.value = networks[n].id;
+                opt.textContent = networks[n].name;
+                networkSelect.appendChild(opt);
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Failed to load networks for local status:', e);
+        }
+      }
+    }
+
+    async function loadLocalStatusAPs() {
+      var networkId = document.getElementById('local-status-network-select').value;
+      var apSelect = document.getElementById('local-status-ap-select');
+      var content = document.getElementById('local-status-content');
+
+      // Clear AP dropdown
+      apSelect.innerHTML = '<option value="">All APs Overview</option>';
+      localStatusAPs = [];
+
+      if (!networkId) {
+        document.getElementById('local-status-total').textContent = '--';
+        document.getElementById('local-status-online').textContent = '--';
+        document.getElementById('local-status-alerting').textContent = '--';
+        document.getElementById('local-status-clients').textContent = '--';
+        content.innerHTML = '<div style="text-align:center;padding:60px;color:var(--foreground-muted)"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.4;margin-bottom:16px"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg><div style="font-size:14px">Select a network to view Access Points</div></div>';
+        return;
+      }
+
+      content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--foreground-muted)">Loading Access Points...</div>';
+
+      try {
+        var res = await fetch('/api/networks/' + networkId + '/wireless/accessPoints');
+        var aps = await res.json();
+
+        if (aps.error) {
+          content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--destructive)">Error: ' + aps.error + '</div>';
+          return;
+        }
+
+        localStatusAPs = aps;
+
+        // Populate AP dropdown
+        for (var i = 0; i < aps.length; i++) {
+          var opt = document.createElement('option');
+          opt.value = aps[i].serial;
+          opt.textContent = aps[i].name || aps[i].serial;
+          apSelect.appendChild(opt);
+        }
+
+        // Update stats
+        var online = aps.filter(function(a) { return a.status === 'online'; }).length;
+        var alerting = aps.filter(function(a) { return a.status === 'alerting'; }).length;
+        var totalClients = aps.reduce(function(sum, a) { return sum + (a.clientCount || 0); }, 0);
+
+        document.getElementById('local-status-total').textContent = aps.length;
+        document.getElementById('local-status-online').textContent = online;
+        document.getElementById('local-status-alerting').textContent = alerting;
+        document.getElementById('local-status-clients').textContent = totalClients;
+
+        // Show overview
+        renderAPOverview(aps);
+
+      } catch (e) {
+        console.error('Failed to load APs:', e);
+        content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--destructive)">Error loading Access Points</div>';
+      }
+    }
+
+    function renderAPOverview(aps) {
+      var content = document.getElementById('local-status-content');
+
+      if (!aps || aps.length === 0) {
+        content.innerHTML = '<div style="text-align:center;padding:60px;color:var(--foreground-muted)">No Access Points found in this network</div>';
+        return;
+      }
+
+      var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">';
+
+      for (var i = 0; i < aps.length; i++) {
+        var ap = aps[i];
+        var statusColor = ap.status === 'online' ? 'var(--success)' : ap.status === 'alerting' ? '#f59e0b' : 'var(--destructive)';
+        var statusIcon = ap.status === 'online' ? '●' : ap.status === 'alerting' ? '◐' : '○';
+
+        html += '<div onclick="selectAP(\\''+ap.serial+'\\')" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;cursor:pointer;transition:all 0.2s" onmouseover="this.style.borderColor=\\'var(--primary)\\'" onmouseout="this.style.borderColor=\\'var(--border)\\'">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">';
+        html += '<div>';
+        html += '<div style="font-size:16px;font-weight:600">' + (ap.name || ap.serial) + '</div>';
+        html += '<div style="font-size:12px;color:var(--foreground-muted);margin-top:2px">' + (ap.model || 'Unknown Model') + '</div>';
+        html += '</div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(255,255,255,0.03);border-radius:20px">';
+        html += '<span style="color:' + statusColor + '">' + statusIcon + '</span>';
+        html += '<span style="font-size:12px;color:' + statusColor + '">' + (ap.status || 'unknown').toUpperCase() + '</span>';
+        html += '</div>';
+        html += '</div>';
+
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+        html += '<div style="background:rgba(255,255,255,0.02);padding:10px;border-radius:8px">';
+        html += '<div style="font-size:10px;color:var(--foreground-muted);margin-bottom:2px">IP Address</div>';
+        html += '<div style="font-size:13px;font-family:monospace">' + (ap.lanIp || 'N/A') + '</div>';
+        html += '</div>';
+        html += '<div style="background:rgba(255,255,255,0.02);padding:10px;border-radius:8px">';
+        html += '<div style="font-size:10px;color:var(--foreground-muted);margin-bottom:2px">Clients</div>';
+        html += '<div style="font-size:13px;font-weight:600;color:var(--primary)">' + (ap.clientCount || 0) + '</div>';
+        html += '</div>';
+        html += '<div style="background:rgba(255,255,255,0.02);padding:10px;border-radius:8px">';
+        html += '<div style="font-size:10px;color:var(--foreground-muted);margin-bottom:2px">Serial</div>';
+        html += '<div style="font-size:11px;font-family:monospace">' + ap.serial + '</div>';
+        html += '</div>';
+        html += '<div style="background:rgba(255,255,255,0.02);padding:10px;border-radius:8px">';
+        html += '<div style="font-size:10px;color:var(--foreground-muted);margin-bottom:2px">Public IP</div>';
+        html += '<div style="font-size:11px;font-family:monospace">' + (ap.publicIp || 'N/A') + '</div>';
+        html += '</div>';
+        html += '</div>';
+        html += '</div>';
+      }
+
+      html += '</div>';
+      content.innerHTML = html;
+    }
+
+    function selectAP(serial) {
+      document.getElementById('local-status-ap-select').value = serial;
+      loadAPStatus();
+    }
+
+    async function loadAPStatus() {
+      var serial = document.getElementById('local-status-ap-select').value;
+      var content = document.getElementById('local-status-content');
+
+      if (!serial) {
+        renderAPOverview(localStatusAPs);
+        return;
+      }
+
+      content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--foreground-muted)">Loading AP Status...</div>';
+
+      try {
+        var res = await fetch('/api/devices/' + serial + '/wireless/status');
+        var data = await res.json();
+
+        if (data.error) {
+          content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--destructive)">Error: ' + data.error + '</div>';
+          return;
+        }
+
+        renderAPDetail(data);
+
+      } catch (e) {
+        console.error('Failed to load AP status:', e);
+        content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--destructive)">Error loading AP status</div>';
+      }
+    }
+
+    function renderAPDetail(data) {
+      var content = document.getElementById('local-status-content');
+      var device = data.device || {};
+      var radio = data.radioSettings || {};
+      var clients = data.clients || [];
+      var neighbors = data.neighbors || {};
+      var uplinks = data.uplinks || [];
+
+      var statusColor = device.status === 'online' ? 'var(--success)' : device.status === 'alerting' ? '#f59e0b' : 'var(--destructive)';
+
+      var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">';
+
+      // Device Info Card
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px">';
+      html += '<div style="font-size:14px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px">';
+      html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
+      html += 'Device Information</div>';
+
+      html += '<div style="display:grid;gap:12px">';
+      html += renderInfoRow('Name', device.name || device.serial);
+      html += renderInfoRow('Model', device.model || 'Unknown');
+      html += renderInfoRow('Serial', device.serial || 'N/A');
+      html += renderInfoRow('MAC Address', device.mac || 'N/A');
+      html += renderInfoRow('Status', '<span style="color:' + statusColor + '">' + (device.status || 'unknown').toUpperCase() + '</span>');
+      html += renderInfoRow('Firmware', device.firmware || 'N/A');
+      html += renderInfoRow('Last Reported', device.lastReportedAt ? new Date(device.lastReportedAt).toLocaleString() : 'N/A');
+      html += '</div></div>';
+
+      // Network Info Card
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px">';
+      html += '<div style="font-size:14px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px">';
+      html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+      html += 'Network Connectivity</div>';
+
+      html += '<div style="display:grid;gap:12px">';
+      html += renderInfoRow('LAN IP', device.lanIp || 'N/A');
+      html += renderInfoRow('Public IP', device.publicIp || 'N/A');
+      html += renderInfoRow('Gateway', device.gateway || 'N/A');
+      html += renderInfoRow('Primary DNS', device.primaryDns || 'N/A');
+      html += renderInfoRow('Secondary DNS', device.secondaryDns || 'N/A');
+
+      if (uplinks.length > 0) {
+        var uplinkInfo = uplinks.map(function(u) {
+          return u.interface + ': ' + (u.addresses && u.addresses[0] ? u.addresses[0].address : 'N/A');
+        }).join(', ');
+        html += renderInfoRow('Uplinks', uplinkInfo);
+      }
+      html += '</div></div>';
+
+      // Radio Settings Card
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px">';
+      html += '<div style="font-size:14px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px">';
+      html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>';
+      html += 'Radio Settings</div>';
+
+      html += '<div style="display:grid;gap:12px">';
+      if (radio.twoFourGhzSettings) {
+        html += renderInfoRow('2.4 GHz Channel', radio.twoFourGhzSettings.channel || 'Auto');
+        html += renderInfoRow('2.4 GHz Power', radio.twoFourGhzSettings.targetPower ? radio.twoFourGhzSettings.targetPower + ' dBm' : 'Auto');
+      }
+      if (radio.fiveGhzSettings) {
+        html += renderInfoRow('5 GHz Channel', radio.fiveGhzSettings.channel || 'Auto');
+        html += renderInfoRow('5 GHz Power', radio.fiveGhzSettings.targetPower ? radio.fiveGhzSettings.targetPower + ' dBm' : 'Auto');
+        html += renderInfoRow('5 GHz Width', radio.fiveGhzSettings.channelWidth || 'Auto');
+      }
+      if (radio.sixGhzSettings) {
+        html += renderInfoRow('6 GHz Channel', radio.sixGhzSettings.channel || 'Auto');
+        html += renderInfoRow('6 GHz Power', radio.sixGhzSettings.targetPower ? radio.sixGhzSettings.targetPower + ' dBm' : 'Auto');
+      }
+      if (!radio.twoFourGhzSettings && !radio.fiveGhzSettings && !radio.sixGhzSettings) {
+        html += '<div style="color:var(--foreground-muted);font-size:13px">Radio settings not available</div>';
+      }
+      html += '</div></div>';
+
+      // Connected Clients Card
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px">';
+      html += '<div style="font-size:14px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px">';
+      html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+      html += 'Connected Clients (' + clients.length + ')</div>';
+
+      if (clients.length > 0) {
+        html += '<div style="max-height:200px;overflow-y:auto">';
+        for (var c = 0; c < Math.min(clients.length, 10); c++) {
+          var client = clients[c];
+          html += '<div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,255,255,0.02);border-radius:6px;margin-bottom:6px">';
+          html += '<div style="font-size:12px">' + (client.description || client.mac || 'Unknown') + '</div>';
+          html += '<div style="font-size:11px;color:var(--foreground-muted)">' + (client.ip || 'No IP') + '</div>';
+          html += '</div>';
+        }
+        if (clients.length > 10) {
+          html += '<div style="text-align:center;font-size:11px;color:var(--foreground-muted);padding:8px">...and ' + (clients.length - 10) + ' more</div>';
+        }
+        html += '</div>';
+      } else {
+        html += '<div style="color:var(--foreground-muted);font-size:13px;text-align:center;padding:20px">No clients currently connected</div>';
+      }
+      html += '</div>';
+
+      html += '</div>';
+
+      // LLDP/CDP Neighbors
+      if (neighbors.ports && Object.keys(neighbors.ports).length > 0) {
+        html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:20px">';
+        html += '<div style="font-size:14px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px">';
+        html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>';
+        html += 'LLDP/CDP Neighbors</div>';
+
+        html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">';
+        html += '<tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:8px;color:var(--foreground-muted)">Port</th><th style="text-align:left;padding:8px;color:var(--foreground-muted)">Protocol</th><th style="text-align:left;padding:8px;color:var(--foreground-muted)">Neighbor</th><th style="text-align:left;padding:8px;color:var(--foreground-muted)">Remote Port</th></tr>';
+
+        var ports = Object.keys(neighbors.ports);
+        for (var p = 0; p < ports.length; p++) {
+          var portId = ports[p];
+          var portData = neighbors.ports[portId];
+          if (portData.lldp) {
+            html += '<tr style="border-bottom:1px solid var(--border)">';
+            html += '<td style="padding:8px">' + portId + '</td>';
+            html += '<td style="padding:8px"><span style="color:#22c55e">LLDP</span></td>';
+            html += '<td style="padding:8px">' + (portData.lldp.systemName || portData.lldp.chassisId || 'Unknown') + '</td>';
+            html += '<td style="padding:8px">' + (portData.lldp.portId || 'N/A') + '</td>';
+            html += '</tr>';
+          }
+          if (portData.cdp) {
+            html += '<tr style="border-bottom:1px solid var(--border)">';
+            html += '<td style="padding:8px">' + portId + '</td>';
+            html += '<td style="padding:8px"><span style="color:#3b82f6">CDP</span></td>';
+            html += '<td style="padding:8px">' + (portData.cdp.deviceId || 'Unknown') + '</td>';
+            html += '<td style="padding:8px">' + (portData.cdp.portId || 'N/A') + '</td>';
+            html += '</tr>';
+          }
+        }
+        html += '</table></div></div>';
+      }
+
+      content.innerHTML = html;
+    }
+
+    function renderInfoRow(label, value) {
+      return '<div style="display:flex;justify-content:space-between;padding:8px 12px;background:rgba(255,255,255,0.02);border-radius:6px">' +
+        '<span style="color:var(--foreground-muted);font-size:12px">' + label + '</span>' +
+        '<span style="font-size:13px">' + value + '</span></div>';
+    }
+
+    function refreshLocalStatus() {
+      var serial = document.getElementById('local-status-ap-select').value;
+      if (serial) {
+        loadAPStatus();
+      } else {
+        loadLocalStatusAPs();
+      }
     }
 
     // PSIRT Advisory Functions
