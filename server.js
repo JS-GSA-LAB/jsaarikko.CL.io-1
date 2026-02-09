@@ -6063,6 +6063,92 @@ app.get(UI_ROUTE, (_req, res) => {
           </div>
           <div id="xiq-ts-scenario-content"></div>
         </div>
+
+        <!-- Configuration Analyzer -->
+        <div class="card" style="margin-top:20px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              <div>
+                <div style="font-size:16px;font-weight:600">IQEngine Configuration Analyzer</div>
+                <div style="font-size:12px;color:var(--foreground-muted)">Paste AP config to analyze against industry best practices</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button onclick="loadSampleConfig()" style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--foreground);cursor:pointer;font-size:12px">
+                Load Sample
+              </button>
+              <button onclick="clearConfigAnalyzer()" style="padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--foreground);cursor:pointer;font-size:12px">
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+            <!-- Config Input -->
+            <div>
+              <div style="font-size:12px;color:var(--foreground-muted);margin-bottom:8px">Paste your AP configuration here (from "show running-config" or XIQ export):</div>
+              <textarea id="xiq-config-input" placeholder="# Paste IQEngine/HiveOS AP configuration here...
+# Example:
+# interface wifi0
+#   radio profile auto-channel
+#   ssid MyNetwork
+#     security wpa2
+#     vlan 100
+# ..." style="width:100%;height:350px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;padding:12px;color:#22c55e;font-family:monospace;font-size:12px;resize:vertical"></textarea>
+              <button onclick="analyzeConfig()" style="width:100%;margin-top:12px;padding:12px;background:linear-gradient(135deg,var(--primary),#7c3aed);border:none;border-radius:8px;color:white;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                Analyze Configuration
+              </button>
+            </div>
+
+            <!-- Analysis Results -->
+            <div>
+              <div style="font-size:12px;color:var(--foreground-muted);margin-bottom:8px">Analysis Results:</div>
+              <div id="xiq-config-results" style="background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:8px;padding:16px;min-height:350px;overflow-y:auto">
+                <div style="text-align:center;padding:60px 20px;color:var(--foreground-muted)">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" style="opacity:0.3;margin-bottom:16px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <div style="font-size:14px">Paste configuration and click "Analyze" to see results</div>
+                  <div style="font-size:12px;margin-top:8px;opacity:0.7">Supports IQEngine AP, HiveOS, and ExtremeCloud IQ configs</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Best Practices Reference -->
+          <div style="margin-top:20px;padding:16px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:8px">
+            <div style="font-weight:600;font-size:13px;margin-bottom:12px;color:#3b82f6">Industry Best Practices Checklist</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font-size:12px">
+              <div>
+                <div style="font-weight:500;margin-bottom:6px;color:var(--foreground)">Wireless Security</div>
+                <div style="color:var(--foreground-muted);line-height:1.6">
+                  • WPA3 or WPA2-Enterprise<br>
+                  • 802.1X with RADIUS<br>
+                  • PMF (Protected Management Frames)<br>
+                  • Disable legacy protocols (WEP, WPA)
+                </div>
+              </div>
+              <div>
+                <div style="font-weight:500;margin-bottom:6px;color:var(--foreground)">RF Optimization</div>
+                <div style="color:var(--foreground-muted);line-height:1.6">
+                  • Auto channel selection<br>
+                  • Band steering enabled<br>
+                  • Appropriate power levels<br>
+                  • 5GHz preferred for density
+                </div>
+              </div>
+              <div>
+                <div style="font-weight:500;margin-bottom:6px;color:var(--foreground)">Client Experience</div>
+                <div style="color:var(--foreground-muted);line-height:1.6">
+                  • 802.11r/k/v enabled<br>
+                  • Load balancing active<br>
+                  • Minimum RSSI threshold<br>
+                  • Airtime fairness
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -7349,6 +7435,227 @@ app.get(UI_ROUTE, (_req, res) => {
       } else {
         initXiqTroubleshoot();
       }
+    }
+
+    // ===========================================
+    // CONFIG ANALYZER FUNCTIONS
+    // ===========================================
+
+    var configBestPractices = [
+      // Security Best Practices
+      { category: 'security', name: 'WPA3 or WPA2-Enterprise', check: function(c) { return /security\s+(wpa3|wpa2-aes-ccmp|wpa-auto-psk.*aes|wpa2-ent)/i.test(c); }, severity: 'critical', recommendation: 'Use WPA3 or WPA2-Enterprise with AES-CCMP encryption' },
+      { category: 'security', name: 'No WEP Encryption', check: function(c) { return !/security\s+wep/i.test(c); }, severity: 'critical', recommendation: 'Remove WEP encryption - it is deprecated and insecure' },
+      { category: 'security', name: 'No Open Networks', check: function(c) { return !/security\s+open/i.test(c) || /captive-web-portal|cwp/i.test(c); }, severity: 'high', recommendation: 'Avoid open networks without captive portal authentication' },
+      { category: 'security', name: 'PMF Enabled', check: function(c) { return /management-frame-protection/i.test(c) || /pmf\s+(required|optional)/i.test(c); }, severity: 'medium', recommendation: 'Enable Protected Management Frames (802.11w) for deauth protection' },
+      { category: 'security', name: 'RADIUS Server Configured', check: function(c) { return /radius-server|aaa\s+radius/i.test(c); }, severity: 'info', recommendation: 'Configure RADIUS server for enterprise authentication' },
+
+      // RF Optimization
+      { category: 'rf', name: 'Auto Channel Selection', check: function(c) { return /radio\s+profile\s+auto|acsp|channel\s+auto/i.test(c) || !/channel\s+\d+/i.test(c); }, severity: 'medium', recommendation: 'Enable auto channel selection (ACSP) for dynamic RF management' },
+      { category: 'rf', name: 'Band Steering', check: function(c) { return /band-steering|band-balance/i.test(c); }, severity: 'medium', recommendation: 'Enable band steering to balance clients across 2.4GHz and 5GHz' },
+      { category: 'rf', name: '5GHz Radio Enabled', check: function(c) { return /interface\s+wifi1|radio\s+wifi1|5g/i.test(c); }, severity: 'high', recommendation: 'Ensure 5GHz radio (wifi1) is enabled for better performance' },
+      { category: 'rf', name: 'Appropriate Power Settings', check: function(c) { return /power\s+auto|tx-power\s+auto|power\s+\d+/i.test(c); }, severity: 'low', recommendation: 'Configure appropriate transmit power levels for your environment' },
+      { category: 'rf', name: 'DFS Channels Allowed', check: function(c) { return !/no\s+dfs|dfs\s+disable/i.test(c); }, severity: 'low', recommendation: 'Allow DFS channels to utilize additional 5GHz spectrum' },
+
+      // Roaming & Client Experience
+      { category: 'roaming', name: '802.11r Fast Roaming', check: function(c) { return /dot11r|11r|fast-roaming|ft-/i.test(c); }, severity: 'medium', recommendation: 'Enable 802.11r (Fast BSS Transition) for seamless roaming' },
+      { category: 'roaming', name: '802.11k Neighbor Reports', check: function(c) { return /dot11k|11k|neighbor-report/i.test(c); }, severity: 'medium', recommendation: 'Enable 802.11k for neighbor AP reports to assist client roaming' },
+      { category: 'roaming', name: '802.11v BSS Transition', check: function(c) { return /dot11v|11v|bss-transition/i.test(c); }, severity: 'medium', recommendation: 'Enable 802.11v for network-assisted roaming decisions' },
+      { category: 'roaming', name: 'Minimum RSSI Configured', check: function(c) { return /min-rssi|rssi-threshold|weak-snr/i.test(c); }, severity: 'medium', recommendation: 'Set minimum RSSI threshold to prevent sticky clients (-75 dBm recommended)' },
+      { category: 'roaming', name: 'Load Balancing', check: function(c) { return /load-balance|client-load/i.test(c); }, severity: 'low', recommendation: 'Enable load balancing to distribute clients across APs' },
+
+      // Network Configuration
+      { category: 'network', name: 'VLAN Configured', check: function(c) { return /vlan\s+\d+/i.test(c); }, severity: 'medium', recommendation: 'Configure VLANs for proper traffic segmentation' },
+      { category: 'network', name: 'Management VLAN Separate', check: function(c) { return /native-vlan|management\s+vlan/i.test(c); }, severity: 'medium', recommendation: 'Separate management traffic from user traffic with dedicated VLAN' },
+      { category: 'network', name: 'DHCP Snooping', check: function(c) { return /dhcp-snoop|dhcp\s+snooping/i.test(c); }, severity: 'low', recommendation: 'Enable DHCP snooping for rogue DHCP server protection' },
+
+      // Operational Best Practices
+      { category: 'operational', name: 'SSID Broadcast', check: function(c) { return !/hide-ssid|no\s+broadcast/i.test(c); }, severity: 'low', recommendation: 'Consider SSID visibility - hiding provides minimal security benefit' },
+      { category: 'operational', name: 'Client Isolation', check: function(c) { return true; }, severity: 'info', recommendation: 'Consider enabling client isolation for guest networks' },
+      { category: 'operational', name: 'QoS/WMM Configured', check: function(c) { return /wmm|qos|traffic-class/i.test(c) || true; }, severity: 'low', recommendation: 'Ensure WMM/QoS is enabled for voice and video prioritization' }
+    ];
+
+    function loadSampleConfig() {
+      var sampleConfig = '# IQEngine AP Configuration Sample\n' +
+        '# Device: AP-4000\n' +
+        '# Software: 10.8.5.0\n\n' +
+        'hostname AP-Office-01\n\n' +
+        'interface wifi0\n' +
+        '  radio profile auto-channel\n' +
+        '  channel auto\n' +
+        '  power auto\n\n' +
+        'interface wifi1\n' +
+        '  radio profile auto-channel\n' +
+        '  channel auto\n' +
+        '  power auto\n' +
+        '  band-steering enable\n\n' +
+        'ssid Corporate-WiFi\n' +
+        '  security wpa2-aes-ccmp\n' +
+        '  radius-server primary 10.1.1.100\n' +
+        '  vlan 100\n' +
+        '  dot11r enable\n' +
+        '  dot11k enable\n' +
+        '  management-frame-protection optional\n\n' +
+        'ssid Guest-WiFi\n' +
+        '  security wpa2-psk\n' +
+        '  vlan 200\n' +
+        '  captive-web-portal enable\n' +
+        '  client-isolation enable\n\n' +
+        'aaa radius-server primary\n' +
+        '  host 10.1.1.100\n' +
+        '  secret encrypted\n' +
+        '  accounting enable\n';
+
+      document.getElementById('xiq-config-input').value = sampleConfig;
+    }
+
+    function clearConfigAnalyzer() {
+      document.getElementById('xiq-config-input').value = '';
+      document.getElementById('xiq-config-results').innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--foreground-muted)"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" style="opacity:0.3;margin-bottom:16px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><div style="font-size:14px">Paste configuration and click "Analyze" to see results</div><div style="font-size:12px;margin-top:8px;opacity:0.7">Supports IQEngine AP, HiveOS, and ExtremeCloud IQ configs</div></div>';
+    }
+
+    function analyzeConfig() {
+      var config = document.getElementById('xiq-config-input').value;
+      var resultsDiv = document.getElementById('xiq-config-results');
+
+      if (!config.trim()) {
+        resultsDiv.innerHTML = '<div style="text-align:center;padding:40px;color:var(--foreground-muted)"><div style="color:#f59e0b">Please paste a configuration to analyze</div></div>';
+        return;
+      }
+
+      // Extract basic info from config
+      var hostname = (config.match(/hostname\s+(\S+)/i) || [])[1] || 'Unknown';
+      var ssids = config.match(/ssid\s+(\S+)/gi) || [];
+      var vlans = config.match(/vlan\s+(\d+)/gi) || [];
+
+      // Run best practices checks
+      var results = {
+        passed: [],
+        warnings: [],
+        failed: [],
+        info: []
+      };
+
+      configBestPractices.forEach(function(bp) {
+        var passed = bp.check(config);
+        var result = {
+          name: bp.name,
+          category: bp.category,
+          severity: bp.severity,
+          recommendation: bp.recommendation,
+          passed: passed
+        };
+
+        if (passed) {
+          results.passed.push(result);
+        } else {
+          if (bp.severity === 'critical') {
+            results.failed.push(result);
+          } else if (bp.severity === 'high' || bp.severity === 'medium') {
+            results.warnings.push(result);
+          } else if (bp.severity === 'info') {
+            results.info.push(result);
+          } else {
+            results.warnings.push(result);
+          }
+        }
+      });
+
+      // Calculate score
+      var total = configBestPractices.filter(function(bp) { return bp.severity !== 'info'; }).length;
+      var passed = results.passed.filter(function(r) { return r.severity !== 'info'; }).length;
+      var score = total > 0 ? Math.round((passed / total) * 100) : 0;
+
+      // Build results HTML
+      var html = '';
+
+      // Score Header
+      var scoreColor = score >= 80 ? '#22c55e' : score >= 60 ? '#f59e0b' : '#ef4444';
+      html += '<div style="text-align:center;padding:20px;background:rgba(0,0,0,0.2);border-radius:8px;margin-bottom:16px">';
+      html += '<div style="font-size:48px;font-weight:700;color:' + scoreColor + '">' + score + '%</div>';
+      html += '<div style="font-size:13px;color:var(--foreground-muted)">Best Practices Compliance Score</div>';
+      html += '<div style="display:flex;justify-content:center;gap:16px;margin-top:12px;font-size:11px">';
+      html += '<span style="color:#22c55e">✓ ' + results.passed.length + ' Passed</span>';
+      html += '<span style="color:#f59e0b">⚠ ' + results.warnings.length + ' Warnings</span>';
+      html += '<span style="color:#ef4444">✗ ' + results.failed.length + ' Critical</span>';
+      html += '</div></div>';
+
+      // Config Summary
+      html += '<div style="padding:12px;background:rgba(59,130,246,0.1);border-radius:8px;margin-bottom:16px">';
+      html += '<div style="font-size:12px;font-weight:600;color:#3b82f6;margin-bottom:8px">Configuration Summary</div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">';
+      html += '<div>Hostname: <span style="color:var(--foreground)">' + hostname + '</span></div>';
+      html += '<div>SSIDs: <span style="color:var(--foreground)">' + ssids.length + ' configured</span></div>';
+      html += '<div>VLANs: <span style="color:var(--foreground)">' + vlans.length + ' referenced</span></div>';
+      html += '</div></div>';
+
+      // Critical Issues
+      if (results.failed.length > 0) {
+        html += '<div style="margin-bottom:12px">';
+        html += '<div style="font-size:12px;font-weight:600;color:#ef4444;margin-bottom:8px;display:flex;align-items:center;gap:6px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> Critical Issues</div>';
+        results.failed.forEach(function(r) {
+          html += '<div style="padding:10px;background:rgba(239,68,68,0.1);border-left:3px solid #ef4444;border-radius:4px;margin-bottom:6px">';
+          html += '<div style="font-size:12px;font-weight:500">' + r.name + '</div>';
+          html += '<div style="font-size:11px;color:var(--foreground-muted);margin-top:2px">' + r.recommendation + '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+
+      // Warnings
+      if (results.warnings.length > 0) {
+        html += '<div style="margin-bottom:12px">';
+        html += '<div style="font-size:12px;font-weight:600;color:#f59e0b;margin-bottom:8px;display:flex;align-items:center;gap:6px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Recommendations</div>';
+        results.warnings.forEach(function(r) {
+          html += '<div style="padding:10px;background:rgba(245,158,11,0.1);border-left:3px solid #f59e0b;border-radius:4px;margin-bottom:6px">';
+          html += '<div style="font-size:12px;font-weight:500">' + r.name + ' <span style="font-size:10px;color:#f59e0b;text-transform:uppercase">(' + r.category + ')</span></div>';
+          html += '<div style="font-size:11px;color:var(--foreground-muted);margin-top:2px">' + r.recommendation + '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+
+      // Passed Checks (collapsible)
+      if (results.passed.length > 0) {
+        html += '<details style="margin-bottom:12px">';
+        html += '<summary style="font-size:12px;font-weight:600;color:#22c55e;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:6px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Passed Checks (' + results.passed.length + ')</summary>';
+        html += '<div style="padding-left:20px">';
+        results.passed.forEach(function(r) {
+          html += '<div style="padding:6px 10px;background:rgba(34,197,94,0.1);border-radius:4px;margin-bottom:4px;font-size:11px;display:flex;align-items:center;gap:6px">';
+          html += '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>';
+          html += r.name + ' <span style="color:var(--foreground-muted)">(' + r.category + ')</span>';
+          html += '</div>';
+        });
+        html += '</div></details>';
+      }
+
+      // Detected Features
+      html += '<div style="padding:12px;background:rgba(255,255,255,0.02);border-radius:8px">';
+      html += '<div style="font-size:12px;font-weight:600;margin-bottom:8px">Detected Features</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+
+      var features = [];
+      if (/wpa3/i.test(config)) features.push({ name: 'WPA3', color: '#22c55e' });
+      if (/wpa2/i.test(config)) features.push({ name: 'WPA2', color: '#3b82f6' });
+      if (/radius/i.test(config)) features.push({ name: 'RADIUS', color: '#8b5cf6' });
+      if (/dot11r|11r/i.test(config)) features.push({ name: '802.11r', color: '#06b6d4' });
+      if (/dot11k|11k/i.test(config)) features.push({ name: '802.11k', color: '#06b6d4' });
+      if (/dot11v|11v/i.test(config)) features.push({ name: '802.11v', color: '#06b6d4' });
+      if (/band-steering/i.test(config)) features.push({ name: 'Band Steering', color: '#f59e0b' });
+      if (/captive|cwp/i.test(config)) features.push({ name: 'Captive Portal', color: '#ec4899' });
+      if (/client-isolation/i.test(config)) features.push({ name: 'Client Isolation', color: '#14b8a6' });
+      if (/management-frame/i.test(config)) features.push({ name: 'PMF', color: '#22c55e' });
+      if (/vlan\s+\d/i.test(config)) features.push({ name: 'VLAN Tagging', color: '#6366f1' });
+
+      if (features.length > 0) {
+        features.forEach(function(f) {
+          html += '<span style="padding:4px 8px;background:' + f.color + '20;color:' + f.color + ';border-radius:4px;font-size:10px;font-weight:500">' + f.name + '</span>';
+        });
+      } else {
+        html += '<span style="color:var(--foreground-muted);font-size:11px">No advanced features detected</span>';
+      }
+      html += '</div></div>';
+
+      resultsDiv.innerHTML = html;
     }
 
     // PSIRT Advisory Functions
