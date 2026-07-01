@@ -191,7 +191,8 @@ async function merakiFetch(endpoint, options = {}) {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Meraki API error: ${res.status} ${res.statusText} - ${text}`);
+    console.error('[meraki]', res.status, text?.slice(0, 300));
+    throw new Error('Meraki API error: ' + res.status);
   }
   // Handle empty responses (like DELETE)
   const text = await res.text();
@@ -253,7 +254,8 @@ async function xiqFetch(endpoint, options = {}) {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`XIQ API error: ${res.status} ${res.statusText} - ${text}`);
+    console.error('[xiq]', res.status, text?.slice(0, 300));
+    throw new Error('XIQ API error: ' + res.status);
   }
   const text = await res.text();
   return text ? JSON.parse(text) : { success: true };
@@ -315,7 +317,8 @@ async function peplinkFetch(endpoint, options = {}) {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`PepLink API error: ${res.status} ${res.statusText} - ${text}`);
+    console.error('[peplink]', res.status, text?.slice(0, 300));
+    throw new Error('PepLink API error: ' + res.status);
   }
   const text = await res.text();
   return text ? JSON.parse(text) : { success: true };
@@ -327,7 +330,7 @@ const PORT = Number(process.env.PORT || 3000);
 const UPSTREAM = (process.env.UPSTREAM_MCP_URL || "").replace(/\/+$/, "");
 const PROXY_ROUTE = process.env.PROXY_ROUTE || "/mcp";
 const UI_ROUTE = process.env.UI_ROUTE || "/";
-const FORWARD_AUTH_HEADER = (process.env.FORWARD_AUTH_HEADER ?? "true").toLowerCase() !== "false";
+const FORWARD_AUTH_HEADER = (process.env.FORWARD_AUTH_HEADER ?? "false").toLowerCase() === "true";
 
 if (!UPSTREAM) {
   console.error("Missing required env var UPSTREAM_MCP_URL");
@@ -341,6 +344,12 @@ app.use(helmet({ contentSecurityPolicy: false }));
 // ── Session auth ────────────────────────────────────────────────────
 app.use(express.urlencoded({ extended: false }));
 
+// Fail-closed: refuse to run with the insecure default session secret in production.
+// A predictable secret lets an attacker forge session cookies and bypass auth entirely.
+if (process.env.RAILWAY_ENVIRONMENT && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === "dev-secret-change-me")) {
+  console.error("Refusing to start in production without a strong SESSION_SECRET. Set SESSION_SECRET.");
+  process.exit(1);
+}
 const SESSION_SECRET = process.env.SESSION_SECRET || "dev-secret-change-me";
 app.use(session({
   secret: SESSION_SECRET,
@@ -801,7 +810,7 @@ app.get("/api/organizations", async (_req, res) => {
 // Meraki API: Get Organization details
 app.get("/api/organizations/:orgId", async (req, res) => {
   try {
-    const org = await merakiFetch(`/organizations/${req.params.orgId}`);
+    const org = await merakiFetch(`/organizations/${encodeURIComponent(req.params.orgId)}`);
     res.json(org);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -811,7 +820,7 @@ app.get("/api/organizations/:orgId", async (req, res) => {
 // Meraki API: Delete Organization
 app.delete("/api/organizations/:orgId", async (req, res) => {
   try {
-    const result = await merakiFetch(`/organizations/${req.params.orgId}`, { method: "DELETE" });
+    const result = await merakiFetch(`/organizations/${encodeURIComponent(req.params.orgId)}`, { method: "DELETE" });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -839,7 +848,7 @@ app.get("/api/networks", async (req, res) => {
 // Meraki API: List Networks for an Organization
 app.get("/api/organizations/:orgId/networks", async (req, res) => {
   try {
-    const networks = await merakiFetch(`/organizations/${req.params.orgId}/networks`);
+    const networks = await merakiFetch(`/organizations/${encodeURIComponent(req.params.orgId)}/networks`);
     res.json(networks);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -849,7 +858,7 @@ app.get("/api/organizations/:orgId/networks", async (req, res) => {
 // Meraki API: List Devices for an Organization
 app.get("/api/organizations/:orgId/devices", async (req, res) => {
   try {
-    const devices = await merakiFetch(`/organizations/${req.params.orgId}/devices`);
+    const devices = await merakiFetch(`/organizations/${encodeURIComponent(req.params.orgId)}/devices`);
     res.json(devices);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -859,7 +868,7 @@ app.get("/api/organizations/:orgId/devices", async (req, res) => {
 // Meraki API: Get Device Statuses for an Organization
 app.get("/api/organizations/:orgId/devices/statuses", async (req, res) => {
   try {
-    const statuses = await merakiFetch(`/organizations/${req.params.orgId}/devices/statuses`);
+    const statuses = await merakiFetch(`/organizations/${encodeURIComponent(req.params.orgId)}/devices/statuses`);
     res.json(statuses);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -870,7 +879,7 @@ app.get("/api/organizations/:orgId/devices/statuses", async (req, res) => {
 app.get("/api/networks/:networkId/events", async (req, res) => {
   try {
     const { productType, includedEventTypes, startingAfter } = req.query;
-    let endpoint = `/networks/${req.params.networkId}/events?perPage=100`;
+    let endpoint = `/networks/${encodeURIComponent(req.params.networkId)}/events?perPage=100`;
     if (productType) endpoint += `&productType=${productType}`;
     if (includedEventTypes) endpoint += `&includedEventTypes[]=${includedEventTypes}`;
     if (startingAfter) endpoint += `&startingAfter=${startingAfter}`;
@@ -885,7 +894,7 @@ app.get("/api/networks/:networkId/events", async (req, res) => {
 app.get("/api/networks/:networkId/traffic", async (req, res) => {
   try {
     const timespan = req.query.timespan || 86400;
-    const traffic = await merakiFetch(`/networks/${req.params.networkId}/traffic?timespan=${timespan}`);
+    const traffic = await merakiFetch(`/networks/${encodeURIComponent(req.params.networkId)}/traffic?timespan=${encodeURIComponent(timespan)}`);
     res.json(traffic);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -895,7 +904,7 @@ app.get("/api/networks/:networkId/traffic", async (req, res) => {
 // Meraki API: Get Device Events by Serial
 app.get("/api/devices/:serial/events", async (req, res) => {
   try {
-    const events = await merakiFetch(`/devices/${req.params.serial}/lossAndLatencyHistory?timespan=604800&ip=8.8.8.8`);
+    const events = await merakiFetch(`/devices/${encodeURIComponent(req.params.serial)}/lossAndLatencyHistory?timespan=604800&ip=8.8.8.8`);
     res.json(events);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -905,7 +914,7 @@ app.get("/api/devices/:serial/events", async (req, res) => {
 // Meraki API: Get DFS Events for a Network
 app.get("/api/networks/:networkId/dfs-events", async (req, res) => {
   try {
-    const events = await merakiFetch(`/networks/${req.params.networkId}/events?productType=wireless&perPage=100`);
+    const events = await merakiFetch(`/networks/${encodeURIComponent(req.params.networkId)}/events?productType=wireless&perPage=100`);
     const dfsEvents = (events.events || []).filter(e => e.type === 'dfs_event');
 
     // Group by device
@@ -939,14 +948,14 @@ app.get("/api/networks/:networkId/wireless-health", async (req, res) => {
     const timespan = parseInt(req.query.timespan) || 86400;
 
     // Fetch general wireless events
-    const events = await merakiFetch(`/networks/${req.params.networkId}/events?productType=wireless&perPage=1000&timespan=${timespan}`);
+    const events = await merakiFetch(`/networks/${encodeURIComponent(req.params.networkId)}/events?productType=wireless&perPage=1000&timespan=${timespan}`);
     const allEvents = events.events || [];
 
     // Fetch Air Marshal/WIPS events separately (they're rare and get lost in general events)
     const wipsEventTypes = ['packet_flood', 'device_packet_flood', 'bcast_deauth', 'bcast_disassoc', 'rogue_ap_association'].join('&includedEventTypes[]=');
     let wipsEvents = [];
     try {
-      const wipsResponse = await merakiFetch(`/networks/${req.params.networkId}/events?productType=wireless&perPage=500&timespan=${timespan}&includedEventTypes[]=${wipsEventTypes}`);
+      const wipsResponse = await merakiFetch(`/networks/${encodeURIComponent(req.params.networkId)}/events?productType=wireless&perPage=500&timespan=${timespan}&includedEventTypes[]=${wipsEventTypes}`);
       wipsEvents = wipsResponse.events || [];
     } catch (wipsErr) {
       console.error('Error fetching WIPS events:', wipsErr.message);
@@ -959,7 +968,7 @@ app.get("/api/networks/:networkId/wireless-health", async (req, res) => {
     // Fetch 6 GHz clients to identify LPI-capable devices
     let sixGhzClientMacs = new Set();
     try {
-      const sixGhzStats = await merakiFetch(`/networks/${req.params.networkId}/wireless/clients/connectionStats?band=6&timespan=${Math.min(timespan, 604800)}`);
+      const sixGhzStats = await merakiFetch(`/networks/${encodeURIComponent(req.params.networkId)}/wireless/clients/connectionStats?band=6&timespan=${Math.min(timespan, 604800)}`);
       if (Array.isArray(sixGhzStats)) {
         sixGhzStats.forEach(client => {
           if (client.mac) sixGhzClientMacs.add(client.mac.toLowerCase());
@@ -1063,7 +1072,7 @@ app.get("/api/networks/:networkId/wireless-health", async (req, res) => {
 // Meraki API: Get Network Wireless Settings
 app.get("/api/networks/:networkId/wireless/settings", async (req, res) => {
   try {
-    const data = await merakiFetch(`/networks/${req.params.networkId}/wireless/settings`);
+    const data = await merakiFetch(`/networks/${encodeURIComponent(req.params.networkId)}/wireless/settings`);
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1073,7 +1082,7 @@ app.get("/api/networks/:networkId/wireless/settings", async (req, res) => {
 // Meraki API: Update Network Wireless Settings
 app.put("/api/networks/:networkId/wireless/settings", express.json(), async (req, res) => {
   try {
-    const data = await merakiFetch(`/networks/${req.params.networkId}/wireless/settings`, {
+    const data = await merakiFetch(`/networks/${encodeURIComponent(req.params.networkId)}/wireless/settings`, {
       method: "PUT",
       body: req.body
     });
@@ -1086,7 +1095,7 @@ app.put("/api/networks/:networkId/wireless/settings", express.json(), async (req
 // Meraki API: Get Network Settings (including event logging)
 app.get("/api/networks/:networkId/settings", async (req, res) => {
   try {
-    const data = await merakiFetch(`/networks/${req.params.networkId}/settings`);
+    const data = await merakiFetch(`/networks/${encodeURIComponent(req.params.networkId)}/settings`);
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1096,7 +1105,7 @@ app.get("/api/networks/:networkId/settings", async (req, res) => {
 // Meraki API: Update Network Settings
 app.put("/api/networks/:networkId/settings", express.json(), async (req, res) => {
   try {
-    const data = await merakiFetch(`/networks/${req.params.networkId}/settings`, {
+    const data = await merakiFetch(`/networks/${encodeURIComponent(req.params.networkId)}/settings`, {
       method: "PUT",
       body: req.body
     });
@@ -1113,7 +1122,7 @@ app.put("/api/networks/:networkId/settings", express.json(), async (req, res) =>
 // Get device details by serial
 app.get("/api/devices/:serial", async (req, res) => {
   try {
-    const device = await merakiFetch(`/devices/${req.params.serial}`);
+    const device = await merakiFetch(`/devices/${encodeURIComponent(req.params.serial)}`);
     res.json(device);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2417,7 +2426,7 @@ app.get("/api/network/health-radar", async (req, res) => {
       if (mr.length > 0) {
         const t0 = isoFromNow(FAIL_CONN_WINDOW_S);
         const t1 = new Date().toISOString();
-        const fc = await merakiFetch(`/networks/${networkId}/wireless/failedConnections?t0=${encodeURIComponent(t0)}&t1=${encodeURIComponent(t1)}&perPage=1000`);
+        const fc = await merakiFetch(`/networks/${encodeURIComponent(networkId)}/wireless/failedConnections?t0=${encodeURIComponent(t0)}&t1=${encodeURIComponent(t1)}&perPage=1000`);
         const count = Array.isArray(fc) ? fc.length : 0;
         failed = { count, perMin: count / (FAIL_CONN_WINDOW_S / 60), windowS: FAIL_CONN_WINDOW_S };
       }
@@ -2431,7 +2440,7 @@ app.get("/api/network/health-radar", async (req, res) => {
       if (mr.length > 0) {
         const t0 = isoFromNow(CHAN_UTIL_WINDOW_S);
         const t1 = new Date().toISOString();
-        const cu = await merakiFetch(`/networks/${networkId}/wireless/channelUtilizationHistory?t0=${encodeURIComponent(t0)}&t1=${encodeURIComponent(t1)}&resolution=600`);
+        const cu = await merakiFetch(`/networks/${encodeURIComponent(networkId)}/wireless/channelUtilizationHistory?t0=${encodeURIComponent(t0)}&t1=${encodeURIComponent(t1)}&resolution=600`);
         const rows = Array.isArray(cu) ? cu : [];
         let acc = 0, n = 0;
         for (const r of rows) {
@@ -2882,7 +2891,7 @@ app.get("/api/xiq/devices", async (req, res) => {
 // XIQ API: Get Device details
 app.get("/api/xiq/devices/:deviceId", async (req, res) => {
   try {
-    const data = await xiqFetch(`/devices/${req.params.deviceId}`);
+    const data = await xiqFetch(`/devices/${encodeURIComponent(req.params.deviceId)}`);
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2904,7 +2913,7 @@ app.get("/api/xiq/sites", async (req, res) => {
 // XIQ API: Get Site details
 app.get("/api/xiq/sites/:siteId", async (req, res) => {
   try {
-    const data = await xiqFetch(`/locations/site/${req.params.siteId}`);
+    const data = await xiqFetch(`/locations/site/${encodeURIComponent(req.params.siteId)}`);
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2946,7 +2955,7 @@ app.get("/api/peplink/organizations", async (req, res) => {
 // PepLink API: List Groups in Organization
 app.get("/api/peplink/organizations/:orgId/groups", async (req, res) => {
   try {
-    const data = await peplinkFetch(`/rest/o/${req.params.orgId}/g`);
+    const data = await peplinkFetch(`/rest/o/${encodeURIComponent(req.params.orgId)}/g`);
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2956,7 +2965,7 @@ app.get("/api/peplink/organizations/:orgId/groups", async (req, res) => {
 // PepLink API: List Devices in Group
 app.get("/api/peplink/organizations/:orgId/groups/:groupId/devices", async (req, res) => {
   try {
-    const data = await peplinkFetch(`/rest/o/${req.params.orgId}/g/${req.params.groupId}/d`);
+    const data = await peplinkFetch(`/rest/o/${encodeURIComponent(req.params.orgId)}/g/${encodeURIComponent(req.params.groupId)}/d`);
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2966,7 +2975,7 @@ app.get("/api/peplink/organizations/:orgId/groups/:groupId/devices", async (req,
 // PepLink API: Get Device Location
 app.get("/api/peplink/organizations/:orgId/groups/:groupId/devices/:deviceId/location", async (req, res) => {
   try {
-    const data = await peplinkFetch(`/rest/o/${req.params.orgId}/g/${req.params.groupId}/d/${req.params.deviceId}/loc`);
+    const data = await peplinkFetch(`/rest/o/${encodeURIComponent(req.params.orgId)}/g/${encodeURIComponent(req.params.groupId)}/d/${encodeURIComponent(req.params.deviceId)}/loc`);
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -4474,7 +4483,9 @@ app.get("/api/evidence/anomaly-check", async (req, res) => {
 
 // BOB Asset Tracker API
 app.get("/api/assets", (req, res) => {
-  const { owner, type, region, search, page = 1, limit = 50 } = req.query;
+  const { owner, type, region, search, page = 1 } = req.query;
+  // Clamp limit to a sane max to prevent full-dump in one request
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 500);
   let filtered = [...bobAssets];
 
   if (owner) {
@@ -8831,6 +8842,8 @@ app.get(UI_ROUTE, (req, res) => {
   </main>
 
   <script>
+    // HTML-escape helper to prevent stored XSS from attacker-controlled client fields
+    function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
     // View Navigation Functions
     function showView(viewId) {
       // Hide all view panels
@@ -9975,7 +9988,7 @@ app.get(UI_ROUTE, (req, res) => {
         for (var c = 0; c < Math.min(clients.length, 10); c++) {
           var client = clients[c];
           html += '<div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,255,255,0.02);border-radius:6px;margin-bottom:6px">';
-          html += '<div style="font-size:12px">' + (client.description || client.mac || 'Unknown') + '</div>';
+          html += '<div style="font-size:12px">' + esc(client.description || client.mac || 'Unknown') + '</div>';
           html += '<div style="font-size:11px;color:var(--foreground-muted)">' + (client.ip || 'No IP') + '</div>';
           html += '</div>';
         }
@@ -13264,11 +13277,11 @@ app.get(UI_ROUTE, (req, res) => {
           clientsList.innerHTML = data.clientMovements.slice(0, 10).map(c =>
             '<div style="padding:8px 10px;margin:4px 0;background:linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03)),#121212;border-radius:6px">' +
             '<div style="display:flex;justify-content:space-between;align-items:center">' +
-            '<span style="font-size:12px;color:rgba(255,255,255,0.87)">' + (c.clientName || 'Unknown') + '</span>' +
+            '<span style="font-size:12px;color:rgba(255,255,255,0.87)">' + esc(c.clientName || 'Unknown') + '</span>' +
             '<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:#00BCD4;color:#000">' + c.totalRoams + ' roams</span>' +
             '</div>' +
-            '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;font-family:var(--font-mono)">' + c.clientMac + '</div>' +
-            '<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px">' + (c.manufacturer || '') + ' · ' + c.uniqueAPs + ' APs visited</div>' +
+            '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;font-family:var(--font-mono)">' + esc(c.clientMac) + '</div>' +
+            '<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px">' + esc(c.manufacturer || '') + ' · ' + c.uniqueAPs + ' APs visited</div>' +
             '</div>'
           ).join('');
         } else {
@@ -13287,11 +13300,11 @@ app.get(UI_ROUTE, (req, res) => {
           failuresList.innerHTML = data.roamingFailures.slice(0, 10).map(f =>
             '<div style="padding:8px 10px;margin:4px 0;background:linear-gradient(rgba(207,102,121,0.1),rgba(207,102,121,0.05)),#121212;border-radius:6px">' +
             '<div style="display:flex;justify-content:space-between;align-items:center">' +
-            '<span style="font-size:12px;color:rgba(255,255,255,0.87)">' + (f.clientName || 'Unknown') + '</span>' +
+            '<span style="font-size:12px;color:rgba(255,255,255,0.87)">' + esc(f.clientName || 'Unknown') + '</span>' +
             '<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:var(--destructive);color:#000">' + f.failureCount + ' fails</span>' +
             '</div>' +
-            '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;font-family:var(--font-mono)">' + f.clientMac + '</div>' +
-            '<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px">' + (f.manufacturer || '') + ' · ' + f.failureRate + '% failure rate</div>' +
+            '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;font-family:var(--font-mono)">' + esc(f.clientMac) + '</div>' +
+            '<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px">' + esc(f.manufacturer || '') + ' · ' + f.failureRate + '% failure rate</div>' +
             '</div>'
           ).join('');
         } else {
@@ -13304,11 +13317,11 @@ app.get(UI_ROUTE, (req, res) => {
           stickyList.innerHTML = data.stickyClients.slice(0, 10).map(s =>
             '<div style="padding:8px 10px;margin:4px 0;background:linear-gradient(rgba(255,183,77,0.1),rgba(255,183,77,0.05)),#121212;border-radius:6px">' +
             '<div style="display:flex;justify-content:space-between;align-items:center">' +
-            '<span style="font-size:12px;color:rgba(255,255,255,0.87)">' + (s.clientName || 'Unknown') + '</span>' +
+            '<span style="font-size:12px;color:rgba(255,255,255,0.87)">' + esc(s.clientName || 'Unknown') + '</span>' +
             '<span style="font-size:11px;padding:2px 6px;border-radius:4px;background:var(--warning);color:#000">' + s.avgRssi + ' dBm</span>' +
             '</div>' +
-            '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;font-family:var(--font-mono)">' + s.clientMac + '</div>' +
-            '<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px">Stuck on: ' + (s.currentAP || 'Unknown') + '</div>' +
+            '<div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px;font-family:var(--font-mono)">' + esc(s.clientMac) + '</div>' +
+            '<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px">Stuck on: ' + esc(s.currentAP || 'Unknown') + '</div>' +
             '<div style="font-size:10px;color:var(--warning);margin-top:4px">' + (s.recommendation || '') + '</div>' +
             '</div>'
           ).join('');
@@ -13966,8 +13979,8 @@ app.get(UI_ROUTE, (req, res) => {
         container.innerHTML = '<div style="font-size:14px;color:var(--secondary);font-weight:500">' + clients.length + ' active clients</div>' +
           clients.slice(0, 5).map(client =>
             '<div style="padding:8px;margin:4px 0;background:linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03)),#121212;border-radius:6px">' +
-            '<span style="color:rgba(255,255,255,0.87)">' + (client.hostname || client.mac_address || 'Unknown') + '</span>' +
-            '<span style="font-size:11px;color:rgba(255,255,255,0.5);margin-left:8px">' + (client.ip_address || '') + '</span>' +
+            '<span style="color:rgba(255,255,255,0.87)">' + esc(client.hostname || client.mac_address || 'Unknown') + '</span>' +
+            '<span style="font-size:11px;color:rgba(255,255,255,0.5);margin-left:8px">' + esc(client.ip_address || '') + '</span>' +
             '</div>'
           ).join('');
       } catch (err) {
